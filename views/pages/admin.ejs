@@ -2453,7 +2453,7 @@ async function testGhostSellerApi() {
         // biar ketauan tanpa buka log Vercel -- lihat catatan di
         // partner/products/route.ts. HAPUS baris debugLine ini begitu
         // penyebab 401 ketemu & fix-nya terkonfirmasi.
-        const debugLine = d.debug ? `\n[debug] header: ${d.debug.headerKeyLength} char, mulai "${d.debug.headerKeyPrefix}" | tersimpan di GhostSeller: ${d.debug.configuredKeyLength} char, mulai "${d.debug.configuredKeyPrefix}" | sumber config: ${d.debug.configSource}` : '';
+        const debugLine = d.debug ? `\n[debug] header: ${d.debug.headerKeyLength} char "${d.debug.headerKeyPrefix}"..."${d.debug.headerKeySuffix}" (checksum ${d.debug.headerChecksum}) | GhostSeller: ${d.debug.configuredKeyLength} char "${d.debug.configuredKeyPrefix}"..."${d.debug.configuredKeySuffix}" (checksum ${d.debug.configuredChecksum}) | sumber: ${d.debug.configSource}` : '';
         el.textContent = '✗ ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '') + debugLine;
         el.style.whiteSpace = 'pre-line';
     }
