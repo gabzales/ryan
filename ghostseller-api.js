@@ -108,7 +108,8 @@ function doRequest(settings, { method, relativePath, body }, redirectCount = 0) 
             success: false,
             code: parsed.error || `HTTP_${res.statusCode}`,
             message: parsed.message || `GhostSeller API mengembalikan status ${res.statusCode}`,
-            status: res.statusCode
+            status: res.statusCode,
+            debug: parsed.debug || undefined // lihat catatan DEBUG SEMENTARA di partner/products/route.ts
           });
         }
         resolve({ success: true, data: parsed });

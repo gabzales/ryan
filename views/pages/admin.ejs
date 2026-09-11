@@ -2419,7 +2419,14 @@ async function testGhostSellerApi() {
     } else {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
         const detail = [d.status ? `HTTP ${d.status}` : null, d.code || null].filter(Boolean).join(' · ');
-        el.textContent = '✗ ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '');
+        // DEBUG SEMENTARA (Sep 2026): tampilin panjang & 12-char awal key
+        // dari kedua sisi (yang dikirim vs yang tersimpan di GhostSeller)
+        // biar ketauan tanpa buka log Vercel -- lihat catatan di
+        // partner/products/route.ts. HAPUS baris debugLine ini begitu
+        // penyebab 401 ketemu & fix-nya terkonfirmasi.
+        const debugLine = d.debug ? `\n[debug] header: ${d.debug.headerKeyLength} char, mulai "${d.debug.headerKeyPrefix}" | tersimpan di GhostSeller: ${d.debug.configuredKeyLength} char, mulai "${d.debug.configuredKeyPrefix}"` : '';
+        el.textContent = '✗ ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '') + debugLine;
+        el.style.whiteSpace = 'pre-line';
     }
 }
 

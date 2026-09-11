@@ -3568,7 +3568,7 @@ app.post('/admin/ghostseller-api/test', requireAdmin, async (req, res) => {
     const tempSettings = { ghostSellerApi: { apiKey, baseUrl } };
     const result = await ghostSellerApi.getProducts(tempSettings);
     if (!result.success) {
-      return res.json({ success: false, message: result.message, code: result.code, status: result.status });
+      return res.json({ success: false, message: result.message, code: result.code, status: result.status, debug: result.debug });
     }
     res.json({ success: true, productCount: Array.isArray(result.data?.data) ? result.data.data.length : 0 });
   } catch (error) {
