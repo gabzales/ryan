@@ -3591,6 +3591,36 @@ app.get('/admin/ghostseller-api/products', requireAdmin, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
+// DEBUG ENDPOINT — Cek RAW API key GhostSeller yang lagi aktif dikirim
+// Akses: /debug/ghostseller-raw?secret=SETUP_SECRET
+// Dibuat khusus buat nelusurin insiden 401 terus-terusan antara Ryan <->
+// GhostSeller (Sep 2026) -- nampilin FULL apiKey (bukan cuma prefix 12
+// char kayak debug di respons /admin/ghostseller-api/test) biar bisa
+// dibandingin karakter-per-karakter persis sama hasil dump
+// /api/debug/partner-api-raw di proyek GhostSeller.
+// HAPUS endpoint ini setelah insiden ini selesai ditelusuri -- dia
+// membocorkan API Key mentah ke siapa pun yang tau SETUP_SECRET.
+// ══════════════════════════════════════════════════════════════════
+app.get('/debug/ghostseller-raw', async (req, res) => {
+  const secret = process.env.SETUP_SECRET;
+  if (!secret || req.query.secret !== secret) {
+    return res.status(403).json({ success: false, message: 'Akses ditolak. Set SETUP_SECRET di env Vercel dan pakai ?secret=...' });
+  }
+  try {
+    const settings = await readFresh('settings.json');
+    const cfg = ghostSellerApi.getConfig(settings);
+    res.json({
+      apiKeyFull: cfg.apiKey || '(kosong)',
+      apiKeyLength: cfg.apiKey ? cfg.apiKey.length : 0,
+      baseUrl: cfg.baseUrl,
+      source: settings.ghostSellerApi?.apiKey ? 'settings.json (disimpan lewat panel admin)' : (process.env.GHOSTSELLER_API_KEY ? 'env var GHOSTSELLER_API_KEY' : '(tidak ada sama sekali)')
+    });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
 // DEBUG ENDPOINT — Cek API key GensPay yang lagi aktif
 // Akses: /debug/genspay?secret=SETUP_SECRET (env var yang sama dgn setup)
 // Set SETUP_SECRET di Vercel env vars dulu. HAPUS endpoint ini / SETUP_SECRET
