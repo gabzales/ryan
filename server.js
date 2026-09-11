@@ -1639,9 +1639,18 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     // supaya order tidak lolos untuk produk yang sebenarnya sudah rusak
     // (ini persis insiden Sep 2026: order tetap lolos ke tahap bayar
     // untuk produk 'auto' yang kredensial vipibmstore-nya kosong).
-    if (resolveStockSourceForDays(product, duration) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
-      return res.json({ success: false, message: 'Stok habis' });
-    }
+    //
+    // BUG (ditemukan & fix Sep 2026): cek ini SEBELUMNYA dipasang di sini,
+    // sebelum `selectedDays` numerik selesai dihitung -- jadi yang dicek
+    // ke resolveStockSourceForDays() adalah `duration` MENTAH dari body
+    // request, yaitu LABEL teks ("1 HARI"), bukan angka hari (1).
+    // resolveStockSourceForDays mencocokkan lewat `o.days === selectedDays`
+    // (angka === angka) -- dibandingkan dengan label teks, itu tidak akan
+    // PERNAH cocok. Akibatnya SEMUA varian GhostSeller (mapping benar
+    // ataupun tidak) selalu jatuh ke 'manual', dan karena varian GhostSeller
+    // memang sengaja tidak punya key manual, langsung "Stok habis" --
+    // padahal mapping-nya sudah benar. Sekarang cek ini dipindah ke BAWAH,
+    // setelah selectedDays numerik benar-benar selesai di-resolve.
 
     // Resolusi harga paket — logika sama seperti /create-order
     let price = 0, selectedDays = null;
@@ -1664,6 +1673,11 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
       price = opt.p;
       const m = duration.match(/(\d+)/); selectedDays = m ? parseInt(m[1]) : null;
     }
+
+    if (resolveStockSourceForDays(product, selectedDays) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
+      return res.json({ success: false, message: 'Stok habis' });
+    }
+
 
     const settings = readDB('settings.json');
     // Diskon reseller CUMA berlaku kalau user memang reseller — samakan
@@ -2229,9 +2243,13 @@ app.post('/create-order', requireAuth, async (req, res) => {
     // itu. Selain itu (termasuk data lama yang masih ke-tag 'auto' dari
     // vipibmstore yang sudah dicabut total) WAJIB ada product.keys — lihat
     // catatan identik di /wallet/buy soal kenapa ini penting.
-    if (resolveStockSourceForDays(product, duration) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
-      return res.json({ success: false, message: 'Stok habis' });
-    }
+    //
+    // BUG (ditemukan & fix Sep 2026): sama persis kejadiannya kayak di
+    // /wallet/buy -- cek ini sebelumnya jalan pakai `duration` MENTAH
+    // (label teks "1 HARI"), bukan `selectedDays` numerik, jadi
+    // resolveStockSourceForDays() SELALU gagal cocok dan varian GhostSeller
+    // manapun (walau mapping-nya sudah benar) selalu dianggap "Stok habis".
+    // Dipindah ke bawah, setelah selectedDays numerik selesai di-resolve.
 
     // Support pricingOptions (deem style: {days,price}) dan items (lama: {l,p})
     let price = 0, selectedDays = null;
@@ -2258,6 +2276,11 @@ app.post('/create-order', requireAuth, async (req, res) => {
       price = opt.p;
       const m = duration.match(/(\d+)/); selectedDays = m ? parseInt(m[1]) : null;
     }
+
+    if (resolveStockSourceForDays(product, selectedDays) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
+      return res.json({ success: false, message: 'Stok habis' });
+    }
+
 
     // FIX: pakai readFresh (bukan readDB) — settings ini dipakai untuk
     // menghitung harga FINAL transaksi (diskon reseller %), jadi harus
