@@ -1,0 +1,199 @@
+<%
+const pageTitle = 'Semua Produk';
+%>
+
+<!-- ══ NAVBAR ══ -->
+<nav id="navbar" style="position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(3,2,6,.97);backdrop-filter:blur(14px);border-bottom:1px solid rgba(124,58,220,.22);box-shadow:0 2px 20px rgba(124,58,220,.12);">
+  <div style="max-width:1200px;margin:0 auto;padding:0 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;height:72px;gap:12px;">
+
+      <!-- Logo -->
+      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0;min-width:0;">
+        <img src="/uploads/logo-lockup.png" alt="<%= settings?.siteName || 'RYAN NEW ERA' %>" style="height:58px;width:auto;object-fit:contain;flex-shrink:0;">
+        <img src="/uploads/logo-wordmark.png" alt="<%= settings?.siteName || 'RYAN NEW ERA' %>" style="height:26px;width:auto;object-fit:contain;flex-shrink:0;">
+      </a>
+
+      <!-- Right buttons -->
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
+        <button onclick="openSearch()" style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(124,47,214,.2);display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <iconify-icon icon="mdi:magnify" style="color:rgba(148,163,184,.7);font-size:18px;"></iconify-icon>
+        </button>
+        <% if (!user) { %>
+        <a href="/login" style="padding:7px 12px;border-radius:8px;font-size:12px;font-weight:700;color:rgba(148,163,184,.8);border:1px solid rgba(255,255,255,.1);text-decoration:none;white-space:nowrap;">MASUK</a>
+        <a href="/register" class="nav-btn-desktop" style="padding:8px 14px;border-radius:8px;font-size:12px;font-weight:800;color:#fff;background:#7c2fd6;text-decoration:none;white-space:nowrap;">DAFTAR</a>
+        <% } else { %>
+        <a href="/dashboard" style="width:36px;height:36px;border-radius:8px;background:rgba(124,47,214,.12);border:1px solid rgba(124,47,214,.25);display:flex;align-items:center;justify-content:center;text-decoration:none;" title="<%= user.username %>">
+          <iconify-icon icon="mdi:account" style="color:#c084fc;font-size:18px;"></iconify-icon>
+        </a>
+        <a href="/dashboard" class="nav-btn-desktop" style="padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;color:#c084fc;background:rgba(124,47,214,.12);border:1px solid rgba(124,47,214,.25);text-decoration:none;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;">
+          <iconify-icon icon="mdi:account" style="font-size:14px;vertical-align:middle;margin-right:4px;"></iconify-icon><%= user.username %>
+        </a>
+        <% } %>
+        <button onclick="openMenu()" style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(124,47,214,.18);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+          <iconify-icon icon="mdi:menu" style="color:rgba(148,163,184,.7);font-size:20px;"></iconify-icon>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div style="padding-top:72px;"></div>
+
+<!-- ══ HEADER HALAMAN ══ -->
+<div style="padding:20px 16px 8px;max-width:1200px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+    <a href="/" style="width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(124,47,214,.2);display:flex;align-items:center;justify-content:center;text-decoration:none;flex-shrink:0;">
+      <iconify-icon icon="mdi:arrow-left" style="color:rgba(148,163,184,.8);font-size:16px;"></iconify-icon>
+    </a>
+    <h1 style="font-size:16px;font-weight:900;color:#fff;margin:0;">Semua Produk</h1>
+  </div>
+  <p style="font-size:11px;color:rgba(148,163,184,.5);margin:2px 0 0 38px;">
+    Menampilkan <strong style="color:rgba(148,163,184,.8);"><%= products.length %></strong> dari
+    <strong style="color:rgba(148,163,184,.8);"><%= totalProducts %></strong> produk
+  </p>
+
+  <!-- Filter pills -->
+  <div style="display:flex;gap:8px;overflow-x:auto;padding:14px 0 8px;scrollbar-width:none;-ms-overflow-style:none;">
+    <a href="/produk?category=all" class="fpill"
+       style="flex-shrink:0;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;<%= activeCategory==='all' ? 'background:#7c2fd6;color:#fff;' : 'background:rgba(23,13,34,.8);color:rgba(148,163,184,.8);border:1px solid rgba(124,47,214,.3);' %>">
+      SEMUA
+    </a>
+    <% if (categories && categories.length > 0) { %>
+    <% categories.forEach(cat => { %>
+    <a href="/produk?category=<%= cat %>" class="fpill"
+       style="flex-shrink:0;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;<%= activeCategory===cat ? 'background:#7c2fd6;color:#fff;' : 'background:rgba(23,13,34,.8);color:rgba(148,163,184,.8);border:1px solid rgba(124,47,214,.3);' %>">
+      <%= categoryLabels[cat] || cat.toUpperCase() %>
+    </a>
+    <% }); } %>
+  </div>
+</div>
+
+<!-- ══ GRID PRODUK ══ -->
+<div style="padding:8px 16px 40px;max-width:1200px;margin:0 auto;">
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+
+    <% products.forEach((product, pIdx) => {
+      // stockMode 'ghostseller' (auto restock beneran) dianggap unlimited.
+      // vipibmstore ('auto') sudah dicabut total -- lihat catatan lengkap
+      // di home.ejs (logika sama persis di sini).
+      const hasAnyGhostSellerVariant = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller');
+      const isGhostSellerStock = product.stockMode === 'ghostseller' || product.stockMode === 'mixed' || hasAnyGhostSellerVariant;
+      const stock = isGhostSellerStock ? Infinity : (product.keys ? product.keys.length : 0);
+      const isOut = stock === 0;
+      const hasAndroid = product.platforms && product.platforms.includes('android');
+      const hasIos     = product.platforms && product.platforms.includes('ios');
+      const fakeSold   = [3200,2800,1900,4100,2100,3700,1500,2400,3300,1700,2600,4500,1200,2900,3800][pIdx%15];
+      const displaySold = (product.sold && product.sold>0) ? product.sold : fakeSold;
+      const soldLabel   = displaySold>=1000 ? (displaySold/1000).toFixed(1).replace('.0','')+'K' : String(displaySold);
+      const pricingArr  = product.pricingOptions || product.items || [];
+      const priceList   = pricingArr.map(x=>(typeof x==='object'?(x.price??x.p):x)).filter(v=>typeof v==='number');
+      const minPrice    = priceList.length ? Math.min(...priceList) : (product.price||0);
+      const platLabel   = hasAndroid ? 'ANDROID' : (hasIos ? 'iOS' : '');
+      const platBg      = hasIos ? 'rgba(124,47,214,.2)' : 'rgba(34,197,94,.15)';
+      const platClr     = hasIos ? '#d8b4fe' : '#4ade80';
+      const platBdr     = hasIos ? 'rgba(124,47,214,.35)' : 'rgba(34,197,94,.3)';
+      const opStatus    = product.operationalStatus || 'online';
+      const opStatusClr = opStatus === 'offline' ? '#f87171' : (opStatus === 'unknown' ? '#c084fc' : '#4ade80');
+      const opStatusLbl = opStatus === 'offline' ? 'Offline' : (opStatus === 'unknown' ? 'Unknown' : 'Online');
+    %>
+
+    <div class="pcard" onclick="location.href='/buy/<%= product.id %>'"
+         style="border-radius:14px;overflow:hidden;background:#160b21;border:1px solid rgba(124,47,214,.16);cursor:pointer;transition:border-color .22s,transform .18s,box-shadow .22s;">
+
+      <div style="position:relative;aspect-ratio:1/1;overflow:hidden;background:#0c0714;">
+        <% if (product.image) { %>
+        <img src="<%= product.image %>" alt="<%= product.name %>"
+             style="width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s;"
+             loading="lazy"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(124,47,214,.06);">
+          <iconify-icon icon="solar:gamepad-bold" style="font-size:32px;color:rgba(124,47,214,.35);"></iconify-icon>
+        </div>
+        <% } else { %>
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(124,47,214,.06);">
+          <iconify-icon icon="solar:gamepad-bold" style="font-size:32px;color:rgba(124,47,214,.3);"></iconify-icon>
+        </div>
+        <% } %>
+
+        <div style="position:absolute;inset:0;background:linear-gradient(to top,#160b21 0%,rgba(10,16,48,.15) 38%,transparent 62%);pointer-events:none;"></div>
+
+        <% if (platLabel) { %>
+        <span style="position:absolute;top:8px;right:8px;z-index:10;font-size:8px;font-weight:800;padding:3px 7px;border-radius:20px;background:rgba(6,10,32,.65);backdrop-filter:blur(4px);color:<%= platClr %>;border:1px solid <%= platBdr %>;letter-spacing:.03em;"><%= platLabel %></span>
+        <% } %>
+
+        <span style="position:absolute;top:8px;left:8px;z-index:10;display:flex;align-items:center;gap:4px;font-size:8px;font-weight:800;padding:3px 7px 3px 6px;border-radius:20px;background:rgba(6,10,32,.65);backdrop-filter:blur(4px);color:<%= opStatusClr %>;border:1px solid <%= opStatusClr %>55;letter-spacing:.03em;">
+          <span class="op-status-dot" style="width:5px;height:5px;border-radius:50%;background:<%= opStatusClr %>;box-shadow:0 0 4px <%= opStatusClr %>;flex-shrink:0;"></span><%= opStatusLbl %>
+        </span>
+
+        <div style="position:absolute;left:9px;right:9px;bottom:8px;z-index:10;font-weight:800;font-size:12px;color:#fff;line-height:1.28;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-shadow:0 2px 6px rgba(0,0,0,.6);"><%= product.name %></div>
+      </div>
+
+      <div style="padding:9px 10px 10px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:900;color:#c084fc;">Rp <%= minPrice.toLocaleString('id-ID') %></span>
+          <span style="font-size:9px;color:rgba(148,163,184,.45);">Terjual <strong style="color:rgba(148,163,184,.7);"><%= soldLabel %></strong></span>
+        </div>
+        <% if (!isOut) { %>
+        <button style="width:100%;padding:8px 0;border-radius:8px;font-size:11px;font-weight:900;color:#fff;background:linear-gradient(135deg,#57169e,#c084fc);border:none;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;">
+          <iconify-icon icon="mdi:shopping" style="font-size:12px;"></iconify-icon> Beli
+        </button>
+        <% } else { %>
+        <button disabled style="width:100%;padding:8px 0;border-radius:8px;font-size:11px;font-weight:700;color:rgba(255,255,255,.25);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;gap:5px;cursor:not-allowed;">
+          <iconify-icon icon="mdi:close-circle-outline" style="font-size:12px;"></iconify-icon> Habis
+        </button>
+        <% } %>
+      </div>
+    </div>
+
+    <% }); %>
+  </div>
+
+  <% if (products.length === 0) { %>
+  <div style="text-align:center;padding:60px 0;color:rgba(148,163,184,.3);">
+    <iconify-icon icon="solar:box-minimalistic-bold" style="font-size:40px;display:block;margin-bottom:10px;"></iconify-icon>
+    <p style="font-size:12px;">Belum ada produk di kategori ini</p>
+  </div>
+  <% } %>
+
+  <!-- ══ PAGINATION ══ -->
+  <% if (totalPages > 1) { %>
+  <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:26px;flex-wrap:wrap;">
+    <a href="/produk?category=<%= activeCategory %>&page=<%= Math.max(1, page-1) %>"
+       style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-decoration:none;background:rgba(255,255,255,.05);border:1px solid rgba(124,47,214,.2);<%= page<=1 ? 'opacity:.35;pointer-events:none;' : '' %>">
+      <iconify-icon icon="mdi:chevron-left" style="color:#d8b4fe;font-size:18px;"></iconify-icon>
+    </a>
+
+    <%
+      const pageWindow = 2;
+      const startP = Math.max(1, page - pageWindow);
+      const endP = Math.min(totalPages, page + pageWindow);
+    %>
+    <% if (startP > 1) { %>
+      <a href="/produk?category=<%= activeCategory %>&page=1" style="min-width:34px;height:34px;padding:0 6px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:12px;font-weight:700;background:rgba(255,255,255,.04);color:rgba(148,163,184,.7);border:1px solid rgba(124,47,214,.15);">1</a>
+      <% if (startP > 2) { %><span style="color:rgba(148,163,184,.4);font-size:12px;">...</span><% } %>
+    <% } %>
+
+    <% for (let p = startP; p <= endP; p++) { %>
+    <a href="/produk?category=<%= activeCategory %>&page=<%= p %>"
+       style="min-width:34px;height:34px;padding:0 6px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:12px;font-weight:700;<%= p===page ? 'background:#7c2fd6;color:#fff;' : 'background:rgba(255,255,255,.04);color:rgba(148,163,184,.7);border:1px solid rgba(124,47,214,.15);' %>">
+      <%= p %>
+    </a>
+    <% } %>
+
+    <% if (endP < totalPages) { %>
+      <% if (endP < totalPages - 1) { %><span style="color:rgba(148,163,184,.4);font-size:12px;">...</span><% } %>
+      <a href="/produk?category=<%= activeCategory %>&page=<%= totalPages %>" style="min-width:34px;height:34px;padding:0 6px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:12px;font-weight:700;background:rgba(255,255,255,.04);color:rgba(148,163,184,.7);border:1px solid rgba(124,47,214,.15);"><%= totalPages %></a>
+    <% } %>
+
+    <a href="/produk?category=<%= activeCategory %>&page=<%= Math.min(totalPages, page+1) %>"
+       style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-decoration:none;background:rgba(255,255,255,.05);border:1px solid rgba(124,47,214,.2);<%= page>=totalPages ? 'opacity:.35;pointer-events:none;' : '' %>">
+      <iconify-icon icon="mdi:chevron-right" style="color:#d8b4fe;font-size:18px;"></iconify-icon>
+    </a>
+  </div>
+  <% } %>
+</div>
+
+<style>
+@keyframes opStatusBlink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+.op-status-dot{animation:opStatusBlink 1.4s ease-in-out infinite;}
+</style>

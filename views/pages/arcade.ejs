@@ -1,0 +1,443 @@
+<%
+const pageTitle = 'Arcade Center';
+%>
+
+<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-[#09040f]/95 backdrop-blur-md border-b border-indigo-500/10">
+    <div class="max-w-3xl mx-auto px-4">
+        <div class="flex items-center justify-between h-14">
+            <a href="/" class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-purple-700 flex items-center justify-center">
+                    <iconify-icon icon="mdi:dice-multiple" class="text-white text-sm"></iconify-icon>
+                </div>
+                <span class="font-bold text-sm shimmer-text">Arcade Center</span>
+            </a>
+            <a href="/dashboard" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-all">
+                <iconify-icon icon="mdi:arrow-left" class="text-sm"></iconify-icon> Dashboard
+            </a>
+        </div>
+    </div>
+</nav>
+
+<div class="min-h-screen pt-16 pb-20 px-4">
+<div class="max-w-3xl mx-auto">
+
+    <!-- Top bar: judul + koin -->
+    <div class="flex items-center justify-between mt-5 mb-4 fade-in-up">
+        <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:rgba(124,47,214,.12);border:1px solid rgba(124,47,214,.25);">
+                <iconify-icon icon="mdi:gamepad-variant" class="text-lg text-sky-400"></iconify-icon>
+            </div>
+            <div>
+                <div class="text-sm font-black text-white leading-tight">Arcade <span class="text-sky-400">Center</span></div>
+                <div class="text-[9px] text-zinc-500 tracking-wide uppercase">Mini Games</div>
+            </div>
+        </div>
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-black text-xs" style="background:rgba(234,179,8,.12);border:1px solid rgba(234,179,8,.3);color:#facc15;">
+            <iconify-icon icon="mdi:poker-chip" class="text-sm"></iconify-icon>
+            <span id="coinBalance"><%= coins %></span> Koin
+        </div>
+    </div>
+
+    <p class="text-[11px] text-zinc-500 mb-4 -mt-1">Gunakan koin untuk bermain. Setiap putaran berpeluang memenangkan hadiah eksklusif. Saldo wallet kamu: <strong class="text-emerald-400">Rp <span id="saldoBalance"><%= (user.balance||0).toLocaleString('id-ID') %></span></strong></p>
+
+    <!-- ══ LOBBY: 3 pilihan game ══ -->
+    <div id="lobbyView">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+
+        <!-- Fortune Wheel -->
+        <div class="game-card rounded-2xl overflow-hidden cursor-pointer transition-all" data-game="wheel" onclick="openGame('wheel')" style="background:#0d0a24;border:1px solid rgba(168,85,247,.25);">
+            <div class="relative flex items-center justify-center" style="height:150px;background:radial-gradient(circle,rgba(168,85,247,.35),rgba(13,10,36,0) 70%);">
+                <div class="absolute rounded-full" style="width:120px;height:120px;border:1px dashed rgba(192,132,252,.3);"></div>
+                <div class="absolute rounded-full" style="width:90px;height:90px;border:1px dashed rgba(192,132,252,.25);"></div>
+                <div class="relative w-14 h-14 rounded-2xl flex items-center justify-center" style="background:rgba(147,51,234,.25);border:1px solid rgba(192,132,252,.4);box-shadow:0 0 22px rgba(168,85,247,.5);">
+                    <iconify-icon icon="mdi:chart-donut" class="text-3xl text-purple-300"></iconify-icon>
+                </div>
+                <span class="absolute bottom-2 text-[9px] font-black tracking-[0.15em] text-purple-300 uppercase">Fortune Wheel</span>
+            </div>
+            <div class="p-3.5 flex items-center justify-between">
+                <div>
+                    <div class="text-sm font-black text-purple-300">Roda Keberuntungan</div>
+                    <div class="text-[10px] text-zinc-500">Putar roda dan raih hadiahnya!</div>
+                </div>
+                <span class="game-cta shrink-0 text-[10px] font-black px-3 py-1.5 rounded-lg" style="background:rgba(168,85,247,.16);color:#d8b4fe;border:1px solid rgba(168,85,247,.35);">Main</span>
+            </div>
+        </div>
+
+        <!-- Lucky Dice -->
+        <div class="game-card rounded-2xl overflow-hidden cursor-pointer transition-all" data-game="dice" onclick="openGame('dice')" style="background:#160b21;border:1px solid rgba(124,47,214,.25);">
+            <div class="relative flex items-center justify-center" style="height:150px;background:radial-gradient(circle,rgba(124,47,214,.3),rgba(10,16,48,0) 70%);">
+                <div class="relative w-14 h-14 rounded-2xl flex items-center justify-center" style="background:rgba(124,47,214,.22);border:1px solid rgba(124,47,214,.4);box-shadow:0 0 22px rgba(124,47,214,.5);">
+                    <iconify-icon icon="mdi:dice-5" class="text-3xl text-purple-300"></iconify-icon>
+                </div>
+                <span class="absolute bottom-2 text-[9px] font-black tracking-[0.15em] text-purple-300 uppercase">Lucky Dice</span>
+            </div>
+            <div class="p-3.5 flex items-center justify-between">
+                <div>
+                    <div class="text-sm font-black text-purple-300">Tebak Dadu</div>
+                    <div class="text-[10px] text-zinc-500">Tebak angka yang akan keluar!</div>
+                </div>
+                <span class="game-cta shrink-0 text-[10px] font-black px-3 py-1.5 rounded-lg" style="background:rgba(124,47,214,.16);color:#d8b4fe;border:1px solid rgba(124,47,214,.35);">Main</span>
+            </div>
+        </div>
+
+        <!-- Mystery Box -->
+        <div class="game-card rounded-2xl overflow-hidden cursor-pointer transition-all" data-game="box" onclick="openGame('box')" style="background:#1a1206;border:1px solid rgba(234,140,20,.25);">
+            <div class="relative flex items-center justify-center overflow-hidden" style="height:150px;background:radial-gradient(circle,rgba(234,140,20,.32),rgba(26,18,6,0) 70%);">
+                <span class="absolute text-amber-400/40 text-lg font-black" style="top:14px;left:18px;">+</span>
+                <span class="absolute text-amber-400/30 text-sm font-black" style="top:24px;right:26px;">+</span>
+                <span class="absolute text-amber-400/30 text-sm font-black" style="bottom:20px;left:30px;">+</span>
+                <span class="absolute text-amber-400/40 text-lg font-black" style="bottom:14px;right:20px;">+</span>
+                <div class="relative w-14 h-14 rounded-2xl flex items-center justify-center" style="background:rgba(234,140,20,.22);border:1px solid rgba(251,191,36,.4);box-shadow:0 0 22px rgba(234,140,20,.5);">
+                    <iconify-icon icon="mdi:treasure-chest" class="text-3xl text-amber-400"></iconify-icon>
+                </div>
+                <span class="absolute bottom-2 text-[9px] font-black tracking-[0.15em] text-amber-400 uppercase">Mystery Box</span>
+            </div>
+            <div class="p-3.5 flex items-center justify-between">
+                <div>
+                    <div class="text-sm font-black text-amber-400">Peti Rahasia</div>
+                    <div class="text-[10px] text-zinc-500">Pilih satu peti tersembunyi.</div>
+                </div>
+                <span class="game-cta shrink-0 text-[10px] font-black px-3 py-1.5 rounded-lg" style="background:rgba(234,140,20,.16);color:#fbbf24;border:1px solid rgba(234,140,20,.35);">Main</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Peringatan koin habis (muncul kalau coins = 0) -->
+    <div id="noCoinBanner" class="hidden items-center gap-2.5 px-4 py-3 rounded-xl mb-5" style="background:rgba(234,88,12,.1);border:1px solid rgba(234,88,12,.3);">
+        <iconify-icon icon="mdi:alert" class="text-amber-400 text-lg shrink-0"></iconify-icon>
+        <p class="text-[11px] text-amber-200">Koin habis! Lakukan transaksi untuk mendapatkan koin baru. Setiap order sukses = <strong>1 koin</strong>.</p>
+    </div>
+
+    <!-- Riwayat -->
+    <div class="mb-6">
+        <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wide mb-2 px-1">Riwayat Permainan</h3>
+        <div id="historyList" class="space-y-1.5">
+            <% if (history.length === 0) { %>
+            <div class="text-center py-8 rounded-xl" style="background:#160b21;border:1px solid rgba(124,47,214,.15);">
+                <iconify-icon icon="mdi:controller-classic-outline" class="text-2xl text-zinc-600 block mb-1"></iconify-icon>
+                <p class="text-[11px] text-zinc-500">Belum ada riwayat permainan.</p>
+            </div>
+            <% } else { %>
+                <% history.forEach(h => { %>
+                <div class="flex items-center justify-between px-3 py-2.5 rounded-xl" style="background:#160b21;border:1px solid rgba(124,47,214,.15);">
+                    <div class="flex items-center gap-2.5">
+                        <iconify-icon icon="<%= h.game==='wheel'?'mdi:chart-donut':(h.game==='dice'?'mdi:dice-5':'mdi:treasure-chest') %>" class="text-base text-sky-400"></iconify-icon>
+                        <div>
+                            <div class="text-[11px] font-bold text-zinc-200"><%= h.gameLabel %></div>
+                            <div class="text-[9px] text-zinc-500"><%= h.time %></div>
+                        </div>
+                    </div>
+                    <span class="text-[10px] font-bold <%= h.prizeType==='zonk' ? 'text-zinc-500' : 'text-emerald-400' %>"><%= h.prizeLabel %></span>
+                </div>
+                <% }) %>
+            <% } %>
+        </div>
+    </div>
+    </div>
+    <!-- /LOBBY -->
+
+    <!-- ══ WHEEL SCREEN ══ -->
+    <div id="wheelView" class="hidden">
+        <button onclick="backToLobby()" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white mb-4">
+            <iconify-icon icon="mdi:chevron-left"></iconify-icon> Kembali ke Lobi Arcade
+        </button>
+        <div class="rounded-2xl p-6 text-center mb-5" style="background:#0d0a24;border:1px solid rgba(168,85,247,.25);">
+            <div class="text-base font-black text-purple-300 mb-6">Roda Keberuntungan</div>
+            <%
+            // ── Bangun geometri roda dari prizeTable asli (server-side), bukan label statis ──
+            const wheelColors = ['#6366f1','#ef4444','#f59e0b','#10b981','#a855f7','#ec4899','#14b8a6','#eab308'];
+            const wheelN = prizeTable.length;
+            const wheelSlice = 360 / wheelN;
+            const polar = (cx, cy, r, angleDeg) => {
+              const rad = angleDeg * Math.PI / 180;
+              return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+            };
+            const shortLabel = (p) => {
+              if (p.type === 'zonk') return 'ZONK';
+              if (p.type === 'saldo') return 'Saldo ' + (p.value/1000) + 'K';
+              if (p.type === 'voucher') return 'Voucher ' + p.value + '%';
+              if (p.type === 'key') {
+                const n = (p.label || 'Key').replace(/^Free Key:\s*/i, '');
+                return n.length > 14 ? n.slice(0, 13) + '…' : n;
+              }
+              return (p.label || '').slice(0, 12);
+            };
+            %>
+            <div class="relative mx-auto mb-6" style="width:250px;height:250px;">
+                <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-top:18px solid #f472b6;z-index:10;filter:drop-shadow(0 0 6px rgba(244,114,182,.6));"></div>
+                <svg id="wheelDial" viewBox="0 0 300 300" style="width:100%;height:100%;transition:transform 4s cubic-bezier(.12,.85,.18,1);filter:drop-shadow(0 0 22px rgba(168,85,247,.35));">
+                    <% for (let i = 0; i < wheelN; i++) {
+                        const startA = i * wheelSlice - 90;
+                        const endA = startA + wheelSlice;
+                        const midA = startA + wheelSlice / 2;
+                        const p1 = polar(150, 150, 145, startA);
+                        const p2 = polar(150, 150, 145, endA);
+                        const largeArc = wheelSlice > 180 ? 1 : 0;
+                        const labelPos = polar(150, 150, 98, midA);
+                        const color = wheelColors[i % wheelColors.length];
+                    %>
+                    <path d="M150,150 L<%= p1.x.toFixed(2) %>,<%= p1.y.toFixed(2) %> A145,145 0 <%= largeArc %> 1 <%= p2.x.toFixed(2) %>,<%= p2.y.toFixed(2) %> Z"
+                          fill="<%= color %>" stroke="#0d0a24" stroke-width="2" data-prize-id="<%= prizeTable[i].id %>" data-mid-angle="<%= midA.toFixed(2) %>"></path>
+                    <text x="<%= labelPos.x.toFixed(2) %>" y="<%= labelPos.y.toFixed(2) %>" transform="rotate(<%= midA.toFixed(2) %>, <%= labelPos.x.toFixed(2) %>, <%= labelPos.y.toFixed(2) %>)"
+                          text-anchor="middle" fill="#fff" font-size="11" font-weight="900" style="text-shadow:0 1px 2px rgba(0,0,0,.4);"><%= shortLabel(prizeTable[i]) %></text>
+                    <% } %>
+                    <circle cx="150" cy="150" r="26" fill="#0d0a24" stroke="rgba(192,132,252,.5)" stroke-width="4"></circle>
+                    <circle cx="150" cy="150" r="9" fill="#a78bfa"></circle>
+                </svg>
+            </div>
+            <button id="wheelBtn" onclick="playGame('wheel')" class="play-btn px-8 py-3 rounded-xl font-black text-sm text-white" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">
+                <span class="btn-label">Putar Roda <iconify-icon icon="mdi:poker-chip" class="ml-1"></iconify-icon> 1 Koin</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ══ DICE SCREEN ══ -->
+    <div id="diceView" class="hidden">
+        <button onclick="backToLobby()" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white mb-4">
+            <iconify-icon icon="mdi:chevron-left"></iconify-icon> Kembali ke Lobi Arcade
+        </button>
+        <div class="rounded-2xl p-6 text-center mb-5" style="background:#160b21;border:1px solid rgba(124,47,214,.25);">
+            <div class="text-base font-black text-purple-300 mb-6">Tebak Dadu</div>
+            <div id="diceFace" class="w-24 h-24 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#a855f7);box-shadow:0 0 24px rgba(124,47,214,.4);">
+                <iconify-icon icon="mdi:dice-6" class="text-6xl text-white"></iconify-icon>
+            </div>
+            <p class="text-[11px] text-zinc-400 mb-3">Pilih angka yang akan keluar</p>
+            <div class="flex items-center justify-center gap-2 mb-6">
+                <% for (let n=1;n<=6;n++) { %>
+                <button onclick="pickDice(<%= n %>, this)" data-n="<%= n %>" class="dice-pick w-9 h-9 rounded-lg font-black text-sm text-zinc-300 transition-all" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);"><%= n %></button>
+                <% } %>
+            </div>
+            <button id="diceBtn" onclick="playGame('dice')" class="play-btn px-8 py-3 rounded-xl font-black text-sm text-white" style="background:linear-gradient(135deg,#57169e,#a855f7);">
+                <span class="btn-label">Kocok Dadu <iconify-icon icon="mdi:poker-chip" class="ml-1"></iconify-icon> 1 Koin</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ══ BOX SCREEN ══ -->
+    <div id="boxView" class="hidden">
+        <button onclick="backToLobby()" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white mb-4">
+            <iconify-icon icon="mdi:chevron-left"></iconify-icon> Kembali ke Lobi Arcade
+        </button>
+        <div class="rounded-2xl p-6 text-center mb-5" style="background:#1a1206;border:1px solid rgba(234,140,20,.25);">
+            <div class="text-base font-black text-amber-400 mb-1">Peti Rahasia</div>
+            <p class="text-[11px] text-zinc-500 mb-6">Pilih salah satu peti untuk membukanya</p>
+            <div class="flex items-center justify-center gap-4 mb-2">
+                <% const boxColors=[['#facc15','rgba(250,204,21,.5)'],['#a855f7','rgba(168,85,247,.5)'],['#14b8a6','rgba(20,184,166,.5)']]; %>
+                <% for (let i=1;i<=3;i++) { %>
+                <div class="box-pick cursor-pointer transition-all" data-n="<%= i %>" onclick="pickBox(<%= i %>, this)">
+                    <div class="w-20 h-20 rounded-2xl flex items-center justify-center mb-2" style="background:rgba(234,140,20,.14);border:2px solid <%= boxColors[i-1][0] %>66;box-shadow:0 0 18px <%= boxColors[i-1][1] %>;">
+                        <iconify-icon icon="mdi:treasure-chest" class="text-4xl" style="color:<%= boxColors[i-1][0] %>;"></iconify-icon>
+                    </div>
+                    <div class="text-[10px] font-black" style="color:<%= boxColors[i-1][0] %>;">PETI <%= i %></div>
+                </div>
+                <% } %>
+            </div>
+        </div>
+    </div>
+
+</div>
+</div>
+
+<!-- Result modal -->
+<div id="resultModal" class="fixed inset-0 z-[100] hidden items-center justify-center px-4" style="background:rgba(2,6,23,.75);backdrop-filter:blur(3px);">
+    <div class="w-full max-w-xs rounded-2xl p-6 text-center" style="background:#0d1533;border:1px solid rgba(124,47,214,.3);">
+        <div id="resultIcon" class="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center">
+            <iconify-icon icon="mdi:gift" class="text-3xl"></iconify-icon>
+        </div>
+        <div id="resultTitle" class="text-lg font-black text-white mb-1">—</div>
+        <div id="resultSub" class="text-xs text-zinc-400 mb-4"></div>
+        <button onclick="closeResult()" class="w-full py-2.5 rounded-lg font-bold text-sm text-white" style="background:linear-gradient(135deg,#57169e,#c084fc);">Oke, Lanjut!</button>
+    </div>
+</div>
+
+<style>
+.game-card:hover{border-color:rgba(124,47,214,.55)!important;transform:translateY(-2px);}
+.game-card.no-coin .game-cta{background:rgba(255,255,255,.05)!important;color:#71717a!important;border-color:rgba(255,255,255,.08)!important;}
+.play-btn:disabled,.play-btn.disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.4);}
+.play-btn.spinning{animation:gcPulse .6s ease-in-out infinite;pointer-events:none;}
+@keyframes gcPulse{0%,100%{opacity:1}50%{opacity:.55}}
+.dice-pick.active{background:#a855f7!important;color:#fff!important;border-color:#c084fc!important;}
+.box-pick.disabled{opacity:.35;pointer-events:none;}
+.box-pick:hover .w-20{transform:translateY(-3px);}
+#diceFace.rolling iconify-icon{animation:diceRoll .1s linear infinite;}
+@keyframes diceRoll{0%{transform:rotate(0deg)}100%{transform:rotate(90deg)}}
+</style>
+
+<script>
+let arcadeBusy = false;
+let selectedDice = 6;
+let selectedBox = null;
+
+function getCoins() { return parseInt(document.getElementById('coinBalance').textContent, 10) || 0; }
+
+function refreshCoinState() {
+    const coins = getCoins();
+    const noCoin = coins < 1;
+    document.getElementById('noCoinBanner').classList.toggle('hidden', !noCoin);
+    document.getElementById('noCoinBanner').classList.toggle('flex', noCoin);
+    document.querySelectorAll('.game-card').forEach(c => c.classList.toggle('no-coin', noCoin));
+    document.querySelectorAll('.game-card .game-cta').forEach(el => { el.textContent = noCoin ? 'Koin Habis' : 'Main'; });
+    document.querySelectorAll('.play-btn').forEach(b => {
+        b.classList.toggle('disabled', noCoin);
+        b.disabled = noCoin;
+        const label = b.querySelector('.btn-label');
+        if (label) {
+            if (noCoin) {
+                if (!b.dataset.origLabel) b.dataset.origLabel = label.innerHTML;
+                label.textContent = 'Koin Habis';
+            } else if (b.dataset.origLabel) {
+                label.innerHTML = b.dataset.origLabel;
+            }
+        }
+    });
+}
+refreshCoinState();
+
+function openGame(game) {
+    document.getElementById('lobbyView').classList.add('hidden');
+    document.getElementById(game + 'View').classList.remove('hidden');
+    if (game === 'dice') { selectedDice = 6; document.querySelectorAll('.dice-pick').forEach(b => b.classList.toggle('active', b.dataset.n === '6')); }
+    if (game === 'box') { selectedBox = null; document.querySelectorAll('.box-pick').forEach(b => b.classList.remove('disabled')); }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function backToLobby() {
+    ['wheel','dice','box'].forEach(g => document.getElementById(g + 'View').classList.add('hidden'));
+    document.getElementById('lobbyView').classList.remove('hidden');
+}
+
+function pickDice(n, el) {
+    selectedDice = n;
+    document.querySelectorAll('.dice-pick').forEach(b => b.classList.toggle('active', b === el));
+}
+
+function pickBox(n, el) {
+    if (getCoins() < 1) { showToast?.('Koin kamu habis. Order dulu buat dapat koin ya!', 'error'); return; }
+    selectedBox = n;
+    document.querySelectorAll('.box-pick').forEach(b => b.classList.add('disabled'));
+    el.classList.remove('disabled');
+    playGame('box');
+}
+
+let wheelCurrentRotation = 0;
+
+async function playGame(game) {
+    if (arcadeBusy) return;
+    if (getCoins() < 1) { showToast?.('Koin kamu habis. Order dulu buat dapat koin ya!', 'error'); return; }
+    arcadeBusy = true;
+
+    // Untuk wheel: request dulu ke server buat tau hadiah beneran, BARU putar
+    // rodanya biar berhenti pas di segmen yang benar (bukan asal spin acak).
+    let animDelay = 900;
+    if (game === 'dice') {
+        const face = document.getElementById('diceFace');
+        face.classList.add('rolling');
+        document.getElementById('diceBtn').classList.add('spinning');
+        animDelay = 1100;
+    } else if (game === 'box') {
+        animDelay = 700;
+    } else if (game === 'wheel') {
+        document.getElementById('wheelBtn').classList.add('spinning');
+    }
+
+    try {
+        const r = await fetch('/arcade/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ game })
+        });
+        const d = await r.json();
+
+        if (!d.success) {
+            document.getElementById('diceFace')?.classList.remove('rolling');
+            showToast?.(d.message || 'Gagal main, coba lagi.', 'error');
+            return;
+        }
+
+        if (game === 'wheel') {
+            const dial = document.getElementById('wheelDial');
+            const wedge = dial.querySelector(`path[data-prize-id="${d.prize.id || ''}"]`);
+            let extraSpins = 5 * 360;
+            if (wedge) {
+                // Muter roda supaya pointer (di angka 0/atas, arah -90 di sistem sudut kita)
+                // berhenti tepat di tengah wedge yang menang.
+                const midAngle = parseFloat(wedge.dataset.midAngle); // -90 = atas
+                const targetOffset = -(midAngle + 90); // sudut yang perlu diputar biar wedge ini ada di atas
+                const normalized = ((targetOffset % 360) + 360) % 360;
+                const currentMod = ((wheelCurrentRotation % 360) + 360) % 360;
+                let delta = normalized - currentMod;
+                if (delta < 0) delta += 360;
+                wheelCurrentRotation += extraSpins + delta;
+            } else {
+                // Fallback: hadiah gak ketemu di roda yang lagi dirender (mis. stok
+                // key berubah barusan) — spin acak biasa, tetap tampilkan hasil yang benar.
+                wheelCurrentRotation += extraSpins + Math.floor(Math.random() * 360);
+            }
+            dial.style.transform = 'rotate(' + wheelCurrentRotation + 'deg)';
+            animDelay = 4000;
+        }
+
+        await new Promise(res => setTimeout(res, animDelay));
+
+        if (game === 'dice') {
+            document.getElementById('diceFace').classList.remove('rolling');
+            document.getElementById('diceFace').querySelector('iconify-icon').setAttribute('icon', 'mdi:dice-' + selectedDice);
+        }
+
+        document.getElementById('coinBalance').textContent = d.coins;
+        document.getElementById('saldoBalance').textContent = d.balance.toLocaleString('id-ID');
+        refreshCoinState();
+        showResult(d.prize);
+
+        setTimeout(() => window.location.reload(), 2200);
+    } catch (e) {
+        showToast?.('Terjadi kesalahan koneksi.', 'error');
+    } finally {
+        document.getElementById('wheelBtn')?.classList.remove('spinning');
+        document.getElementById('diceBtn')?.classList.remove('spinning');
+        arcadeBusy = false;
+    }
+}
+
+function showResult(prize) {
+    const modal = document.getElementById('resultModal');
+    const icon = document.getElementById('resultIcon');
+    const title = document.getElementById('resultTitle');
+    const sub = document.getElementById('resultSub');
+
+    if (prize.type === 'zonk') {
+        icon.style.background = 'rgba(148,163,184,.12)';
+        icon.innerHTML = '<iconify-icon icon="mdi:emoticon-sad-outline" class="text-3xl text-zinc-400"></iconify-icon>';
+        title.textContent = 'Zonk!';
+        title.style.color = '#e2e8f0';
+        sub.textContent = 'Belum rezeki, coba lagi lain waktu ya.';
+    } else if (prize.type === 'saldo') {
+        icon.style.background = 'rgba(52,211,153,.14)';
+        icon.innerHTML = '<iconify-icon icon="mdi:wallet-plus" class="text-3xl text-emerald-400"></iconify-icon>';
+        title.textContent = 'Selamat!';
+        title.style.color = '#34d399';
+        sub.textContent = 'Kamu dapat saldo Rp ' + prize.value.toLocaleString('id-ID') + ', langsung masuk wallet.';
+    } else if (prize.type === 'voucher') {
+        icon.style.background = 'rgba(124,47,214,.14)';
+        icon.innerHTML = '<iconify-icon icon="mdi:ticket-percent" class="text-3xl text-sky-400"></iconify-icon>';
+        title.textContent = 'Voucher Didapat!';
+        title.style.color = '#c084fc';
+        sub.textContent = 'Diskon ' + prize.value + '% dengan kode ' + prize.voucherCode + ' (berlaku 7 hari, 1x pakai).';
+    } else if (prize.type === 'key') {
+        icon.style.background = 'rgba(250,204,21,.14)';
+        icon.innerHTML = '<iconify-icon icon="mdi:key-star" class="text-3xl text-yellow-400"></iconify-icon>';
+        title.textContent = 'Jackpot! Key Gratis!';
+        title.style.color = '#facc15';
+        sub.innerHTML = 'Kamu dapat key <strong>' + prize.productName + '</strong>:<br><span style="font-family:monospace;font-weight:700;color:#facc15;">' + prize.key + '</span>';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeResult() {
+    document.getElementById('resultModal').classList.add('hidden');
+    document.getElementById('resultModal').classList.remove('flex');
+}
+</script>

@@ -1,0 +1,661 @@
+<%
+const pageTitle = 'Edit Produk';
+%>
+<style>
+.hm-input{width:100%;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.05);border:1.5px solid rgba(255,255,255,.1);color:#fff;font-size:13px;transition:all .2s;font-family:'Inter',sans-serif;}
+.hm-input:focus{outline:none;border-color:rgba(124,47,214,.6);background:rgba(124,47,214,.06);}
+/* BUG FIX: <option> di dalam <select class="hm-input"> nggak mewarisi
+   background semi-transparan induknya waktu dropdown dibuka (terutama
+   Chrome/Windows) -- fallback ke background putih solid dari OS, sementara
+   color:#fff tetap kepakai, jadi teks putih di atas putih (nyaris tak
+   kebaca). Kasih background solid gelap + teks terang eksplisit khusus
+   untuk <option> supaya konsisten kebaca di semua browser. */
+select.hm-input option{background:#0f172a;color:#e2e8f0;}
+.section-card{background:rgba(255,255,255,.02);border:1px solid rgba(124,47,214,.2);border-radius:14px;padding:20px;margin-bottom:16px;}
+.key-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:10px;font-family:monospace;background:rgba(124,47,214,.12);border:1px solid rgba(124,47,214,.25);color:#a5b4fc;margin:2px;}
+</style>
+
+<div class="min-h-screen pt-20 pb-24 px-4">
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-black text-white">Edit Produk</h1>
+      <p class="text-zinc-500 text-sm mt-0.5" id="productNameLabel">Memuat...</p>
+    </div>
+    <a href="/admin" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 text-xs font-bold transition-all">
+      <iconify-icon icon="mdi:arrow-left"></iconify-icon> Kembali
+    </a>
+  </div>
+
+  <!-- ── GAMBAR PRODUK ── -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-4 flex items-center gap-2">
+      <iconify-icon icon="mdi:image" class="text-purple-400 text-lg"></iconify-icon> Gambar Produk
+    </h2>
+    <div id="imgPreviewWrap" class="w-full h-44 rounded-xl border-2 border-dashed border-purple-500/30 bg-purple-500/5 flex items-center justify-center overflow-hidden mb-3">
+      <img id="imgPreview" src="" alt="" class="w-full h-full object-cover hidden">
+      <span id="imgPlaceholder" class="text-zinc-600 text-sm">Belum ada gambar</span>
+    </div>
+    <input type="file" id="imgFileInput" accept="image/*" class="hidden" onchange="uploadBanner(event)">
+    <div class="flex gap-2 mb-2">
+      <button onclick="document.getElementById('imgFileInput').click()"
+        class="flex-1 py-2 rounded-lg text-xs font-bold text-purple-400 border border-purple-500/30 hover:bg-purple-500/10 transition-all flex items-center justify-center gap-1.5">
+        <iconify-icon icon="mdi:upload" class="text-sm"></iconify-icon> Upload File
+      </button>
+    </div>
+    <input type="text" id="imgUrlInput" class="hm-input text-sm" placeholder="Atau paste URL gambar (https://...)" oninput="previewImg(this.value)">
+    <p class="text-[10px] text-zinc-600 mt-1.5">Gambar akan tampil di halaman produk pengguna</p>
+  </div>
+
+  <!-- ── STATUS ── -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-3 flex items-center gap-2">
+      <iconify-icon icon="mdi:shield-check" class="text-purple-400 text-lg"></iconify-icon> Status Produk
+    </h2>
+    <div class="flex gap-3">
+      <button id="btn-active" onclick="setStatus('active')"
+        class="flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5">
+        <iconify-icon icon="mdi:check-circle"></iconify-icon> Aktif
+      </button>
+      <button id="btn-inactive" onclick="setStatus('inactive')"
+        class="flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5">
+        <iconify-icon icon="mdi:close-circle"></iconify-icon> Nonaktif
+      </button>
+    </div>
+  </div>
+
+  <!-- ── STATUS OPERASIONAL (badge titik warna di card produk) ── -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-1 flex items-center gap-2">
+      <iconify-icon icon="mdi:pulse" class="text-purple-400 text-lg"></iconify-icon> Status Operasional
+    </h2>
+    <p class="text-[11px] text-zinc-500 mb-3">Badge titik warna yang tampil di card produk untuk info pembeli. Beda dengan "Status Produk" di atas (yang mengatur apakah produk terlihat/dijual sama sekali).</p>
+    <div class="grid grid-cols-3 gap-2">
+      <button id="btn-opstatus-online" onclick="setOpStatus('online')"
+        class="py-2.5 rounded-xl text-[11px] font-black border transition-all flex flex-col items-center justify-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Online
+      </button>
+      <button id="btn-opstatus-offline" onclick="setOpStatus('offline')"
+        class="py-2.5 rounded-xl text-[11px] font-black border transition-all flex flex-col items-center justify-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-red-400"></span> Offline
+      </button>
+      <button id="btn-opstatus-unknown" onclick="setOpStatus('unknown')"
+        class="py-2.5 rounded-xl text-[11px] font-black border transition-all flex flex-col items-center justify-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-purple-400"></span> Unknown
+      </button>
+    </div>
+    <p class="text-[10px] text-zinc-600 mt-2">Online: aman dipakai. Offline: sedang maintenance/bermasalah, jangan ditransaksikan. Unknown: status belum diketahui.</p>
+  </div>
+
+  <!-- ── PLATFORM ── -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-3 flex items-center gap-2">
+      <iconify-icon icon="mdi:cellphone" class="text-purple-400 text-lg"></iconify-icon> Platform
+    </h2>
+    <div class="flex gap-3">
+      <button id="btn-android" onclick="togglePlatform('android')"
+        class="flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5">
+        <iconify-icon icon="mdi:android" class="text-sm"></iconify-icon> Android
+      </button>
+      <button id="btn-ios" onclick="togglePlatform('ios')"
+        class="flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5">
+        <iconify-icon icon="mdi:apple" class="text-sm"></iconify-icon> iOS
+      </button>
+    </div>
+    <p class="text-[10px] text-zinc-600 mt-2">Pilih platform yang didukung produk ini (bisa keduanya)</p>
+  </div>
+
+  <!-- ── HARGA PAKET & MODE STOK PER VARIAN ── -->
+  <!-- REDESIGN: sebelumnya mapping ke Reseller API cuma 1 dropdown GLOBAL
+       untuk seluruh produk, jadi semua varian hari (3/7/15/30 hari dst)
+       kepaksa pakai product_item_id yang SAMA -- padahal provider (lihat
+       referensi IBM Store yang dikasih klien) kasih item id BEDA per
+       varian hari. Sekarang tiap baris varian punya toggle Manual/Auto +
+       mapping provider sendiri-sendiri, persis seperti referensi. -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-1 flex items-center gap-2">
+      <iconify-icon icon="mdi:tag-multiple" class="text-purple-400 text-lg"></iconify-icon> Harga Paket & Sumber Stok
+    </h2>
+    <p class="text-[11px] text-zinc-500 mb-4">Atur durasi, harga, dan sumber stok (Manual/GhostSeller) untuk setiap paket. Tiap paket bisa punya sumber stok berbeda-beda.</p>
+    <div id="pricingRows" class="space-y-2 mb-3"></div>
+    <button onclick="addPricingRow()"
+      class="w-full py-2.5 rounded-xl text-xs font-bold text-purple-400 border border-dashed border-purple-500/30 hover:bg-purple-500/10 transition-all flex items-center justify-center gap-1.5">
+      <iconify-icon icon="mdi:plus-circle" class="text-sm"></iconify-icon> Tambah Paket
+    </button>
+    <p class="text-[10px] text-zinc-600 mt-2">Contoh: 7 hari → Rp 15.000 | 30 hari → Rp 50.000. Untuk Auto tanpa mapping manual, sistem otomatis mencocokkan by nama produk + jumlah hari ke katalog provider.</p>
+  </div>
+
+  <!-- ── KEYS / STOK MANUAL ── -->
+  <div class="section-card" id="manualStockSection">
+    <h2 class="text-sm font-black text-white mb-1 flex items-center gap-2">
+      <iconify-icon icon="mdi:key-variant" class="text-purple-400 text-lg"></iconify-icon> Keys & Stok Manual
+    </h2>
+    <p class="text-[11px] text-zinc-500 mb-4">Untuk paket yang sumber stoknya diset "Manual" di atas — stok diambil dari keys yang kamu upload di sini, ditandai per hari lewat format <code class="text-purple-400">KEY:HARI</code>.</p>
+
+    <!-- Info stok per paket -->
+    <div id="stockInfo" class="space-y-2 mb-4"></div>
+
+    <!-- Tambah keys -->
+    <div class="rounded-xl p-4" style="background:rgba(124,47,214,.06);border:1px solid rgba(124,47,214,.2)">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold text-purple-300">Tambah / Ganti Keys</span>
+        <div class="flex gap-1">
+          <button id="modeAppend" onclick="setKeysMode('append')"
+            class="px-2 py-1 rounded text-[10px] font-bold transition-all">+ Tambah</button>
+          <button id="modeReplace" onclick="setKeysMode('replace')"
+            class="px-2 py-1 rounded text-[10px] font-bold transition-all">↺ Ganti Semua</button>
+        </div>
+      </div>
+      <textarea id="keysInput" class="hm-input font-mono text-xs resize-none" rows="6"
+        placeholder="Masukkan keys, satu per baris&#10;Contoh:&#10;FF7-001:7&#10;FF30-001:30&#10;ML7-001:7"></textarea>
+      <p class="text-[10px] text-zinc-600 mt-1.5">
+        Format tag durasi: <code class="text-purple-400">KEY:HARI</code> (misal <code class="text-purple-400">FF7-001:7</code> untuk paket 7 hari)
+      </p>
+    </div>
+
+    <!-- Preview keys existing -->
+    <div id="existingKeys" class="mt-3 hidden">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[11px] text-zinc-500" id="keyCountLabel"></span>
+        <button onclick="clearAllKeys()" class="text-[10px] text-red-400 hover:text-red-300 transition-colors">Hapus Semua Keys</button>
+      </div>
+      <div id="keyChips" class="max-h-32 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- ── TOMBOL SIMPAN ── -->
+  <div class="flex gap-3 mt-2">
+    <button onclick="saveProduct()"
+      class="btn-gaming flex-1 py-3.5 text-sm font-black flex items-center justify-center gap-2">
+      <iconify-icon icon="mdi:check-circle" class="text-lg"></iconify-icon> Simpan Perubahan
+    </button>
+    <button onclick="confirmDelete()"
+      class="px-5 py-3.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/35 hover:bg-red-500/25 font-bold text-sm transition-all flex items-center gap-2">
+      <iconify-icon icon="mdi:trash"></iconify-icon>
+    </button>
+  </div>
+
+</div>
+</div>
+
+<script>
+let currentProduct = null;
+let selectedStatus = 'active';
+let selectedOpStatus = 'online';
+let keysMode = 'append';
+let selectedPlatforms = [];
+let pricingOptions = [];
+
+// ─── Load produk ───
+async function loadProduct() {
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id) { showToast('ID produk tidak ditemukan', 'error'); return; }
+
+  const res = await fetch('/admin/product/' + id);
+  const data = await res.json();
+  if (!data.success) { showToast(data.message || 'Gagal memuat', 'error'); return; }
+
+  currentProduct = data.data;
+  document.getElementById('productNameLabel').textContent = currentProduct.name;
+
+  // Gambar
+  const img = currentProduct.image || currentProduct.bannerUrl || '';
+  document.getElementById('imgUrlInput').value = img;
+  previewImg(img);
+
+  // Status
+  selectedStatus = currentProduct.status || 'active';
+  selectedOpStatus = currentProduct.operationalStatus || 'online';
+  updateStatusBtns();
+  updateOpStatusBtns();
+
+  // Platforms
+  selectedPlatforms = currentProduct.platforms || [];
+  updatePlatformBtns();
+
+  // Pricing Options -- tiap baris bawa stockSource ('ghostseller'/'manual')
+  // sendiri. vipibmstore ('auto') sudah dicabut total dari sistem ini --
+  // data lama yang masih ke-tag 'auto' (baik di top-level product.stockMode
+  // maupun per-baris o.stockSource) SENGAJA dibaca sebagai 'manual' di sini,
+  // supaya begitu admin buka Edit Produk untuk produk lama itu, langsung
+  // kelihatan jelas kalau sekarang statusnya Manual (stok kosong sampai
+  // diisi) -- bukan diam-diam tetap 'auto' dan bingung kenapa masih gagal.
+  if (currentProduct.pricingOptions && currentProduct.pricingOptions.length > 0) {
+    pricingOptions = currentProduct.pricingOptions.map(o => ({
+      days: o.days,
+      price: o.price,
+      reseller_price: (o.reseller_price != null ? o.reseller_price : ''),
+      stockSource: o.stockSource === 'ghostseller' ? 'ghostseller' : 'manual',
+      unit: ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari',
+      ghostSellerProductId: o.ghostSellerProductId || null,
+      ghostSellerDurationId: o.ghostSellerDurationId || null
+    }));
+  } else if (currentProduct.items && currentProduct.items.length > 0) {
+    pricingOptions = currentProduct.items.map(item => {
+      // Terima format label baru ("1 JAM"/"1 HARI"/"1 MENIT") maupun lama
+      // ("1 DAYS") -- sebelumnya cuma cari "DAYS", jadi produk yang sudah
+      // pakai unit Jam/Menit gagal ke-parse balik di sini (days jadi 0/hilang).
+      const m = (item.l || '').match(/(\d+)\s+(DAYS|HARI|JAM|MENIT)\b/i);
+      const unitRaw = m ? m[2].toUpperCase() : null;
+      const unit = unitRaw === 'JAM' ? 'jam' : unitRaw === 'MENIT' ? 'menit' : 'hari';
+      return {
+        days: m ? parseInt(m[1]) : 0, price: item.p || 0,
+        reseller_price: (item.reseller_price != null ? item.reseller_price : ''),
+        stockSource: 'manual',
+        unit,
+        ghostSellerProductId: null,
+        ghostSellerDurationId: null
+      };
+    }).filter(o => o.days > 0);
+  } else {
+    pricingOptions = [];
+  }
+
+  // Keys
+  renderKeyInfo();
+  setKeysMode('append');
+
+  // Muat daftar produk GhostSeller dulu (untuk dropdown mapping di tiap
+  // baris varian mode GhostSeller), baru render baris pricing supaya
+  // dropdown langsung terisi sejak awal.
+  await loadGhostSellerProducts();
+}
+
+function previewImg(url) {
+  const img = document.getElementById('imgPreview');
+  const ph  = document.getElementById('imgPlaceholder');
+  if (url && url.trim()) {
+    img.src = url.trim();
+    img.classList.remove('hidden');
+    ph.classList.add('hidden');
+    img.onerror = () => { img.classList.add('hidden'); ph.classList.remove('hidden'); };
+  } else {
+    img.classList.add('hidden');
+    ph.classList.remove('hidden');
+  }
+}
+
+async function uploadBanner(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('banner', file);
+  const res  = await fetch('/admin/upload-banner', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById('imgUrlInput').value = data.bannerUrl;
+    previewImg(data.bannerUrl);
+    showToast('Gambar berhasil diupload', 'success');
+  } else {
+    showToast(data.message || 'Gagal upload', 'error');
+  }
+}
+
+// ─── Status ───
+function setStatus(s) {
+  selectedStatus = s;
+  updateStatusBtns();
+}
+function updateStatusBtns() {
+  const a = document.getElementById('btn-active');
+  const i = document.getElementById('btn-inactive');
+  a.className = selectedStatus === 'active'
+    ? 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-emerald-500/50 bg-emerald-500/15 text-emerald-400'
+    : 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-white/10 text-zinc-500 hover:text-white';
+  i.className = selectedStatus === 'inactive'
+    ? 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-red-500/50 bg-red-500/15 text-red-400'
+    : 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-white/10 text-zinc-500 hover:text-white';
+}
+
+// ─── Status Operasional ───
+function setOpStatus(s) {
+  selectedOpStatus = s;
+  updateOpStatusBtns();
+}
+function updateOpStatusBtns() {
+  const map = {
+    online:  { id: 'btn-opstatus-online',  active: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-400' },
+    offline: { id: 'btn-opstatus-offline', active: 'border-red-500/50 bg-red-500/15 text-red-400' },
+    unknown: { id: 'btn-opstatus-unknown', active: 'border-purple-500/50 bg-purple-500/15 text-purple-300' }
+  };
+  Object.entries(map).forEach(([key, cfg]) => {
+    const el = document.getElementById(cfg.id);
+    if (!el) return;
+    el.className = selectedOpStatus === key
+      ? `py-2.5 rounded-xl text-[11px] font-black border transition-all flex flex-col items-center justify-center gap-1 ${cfg.active}`
+      : 'py-2.5 rounded-xl text-[11px] font-black border transition-all flex flex-col items-center justify-center gap-1 border-white/10 text-zinc-500 hover:text-white';
+  });
+}
+
+// ─── Platform ───
+function togglePlatform(p) {
+  const idx = selectedPlatforms.indexOf(p);
+  if (idx === -1) selectedPlatforms.push(p); else selectedPlatforms.splice(idx, 1);
+  updatePlatformBtns();
+}
+function updatePlatformBtns() {
+  const a = document.getElementById('btn-android');
+  const i = document.getElementById('btn-ios');
+  a.className = selectedPlatforms.includes('android')
+    ? 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-emerald-500/50 bg-emerald-500/15 text-emerald-400'
+    : 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-white/10 text-zinc-500 hover:text-white';
+  i.className = selectedPlatforms.includes('ios')
+    ? 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-sky-400/50 bg-sky-500/15 text-sky-300'
+    : 'flex-1 py-2.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 border-white/10 text-zinc-500 hover:text-white';
+}
+
+// ─── Pricing (tiap baris = 1 varian hari, punya sumber stok sendiri) ───
+// ghostSellerProductList diisi oleh loadGhostSellerProducts() sekali saat
+// halaman dibuka, dipakai untuk isi <select> mapping GhostSeller di tiap
+// baris varian dengan stockSource='ghostseller'. Tiap item bawa nested
+// product_durations[] (lihat GET /admin/ghostseller-api/products).
+let ghostSellerProductList = [];
+const UNIT_LABEL_JS = { hari: 'hari', jam: 'jam', menit: 'menit' };
+
+function renderPricingRows() {
+  const container = document.getElementById('pricingRows');
+  if (pricingOptions.length === 0) {
+    container.innerHTML = '<p class="text-center text-zinc-600 text-xs py-3">Belum ada paket harga. Klik "+ Tambah Paket".</p>';
+    return;
+  }
+  container.innerHTML = pricingOptions.map((opt, i) => {
+    // 'auto' (vipibmstore) dicabut total -- data lama yang masih ke-tag
+    // 'auto' otomatis dianggap 'manual' di sini (aman: cuma nampilin
+    // "0 stok" sampai admin isi key/ganti ke GhostSeller, bukan nyoba
+    // manggil provider yang kodenya udah dihapus).
+    const mode = opt.stockSource === 'ghostseller' ? 'ghostseller' : 'manual';
+    return `
+    <div class="flex flex-col gap-2 p-3 rounded-xl" style="background:rgba(124,47,214,.06);border:1px solid rgba(124,47,214,.2)">
+      <div class="flex gap-2 items-center">
+        <div class="flex-1 flex gap-2 items-center">
+          <input type="number" value="${opt.days}" min="1" placeholder="Durasi"
+            class="hm-input text-sm text-center font-bold" style="width:56px"
+            oninput="pricingOptions[${i}].days=parseInt(this.value)||0">
+          <select class="hm-input text-xs shrink-0" style="width:78px;padding-left:6px;padding-right:6px"
+            onchange="pricingOptions[${i}].unit=this.value">
+            <option value="hari" ${(opt.unit||'hari')==='hari'?'selected':''}>Hari</option>
+            <option value="jam" ${opt.unit==='jam'?'selected':''}>Jam</option>
+            <option value="menit" ${opt.unit==='menit'?'selected':''}>Menit</option>
+          </select>
+          <div class="flex-1 relative">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-xs font-bold">Rp</span>
+            <input type="number" value="${opt.price}" min="0" step="1000" placeholder="Harga"
+              class="hm-input text-sm pl-9 font-bold"
+              oninput="pricingOptions[${i}].price=parseInt(this.value)||0">
+          </div>
+        </div>
+        <button onclick="removePricingRow(${i})"
+          class="shrink-0 w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 transition-all flex items-center justify-center text-lg font-black">×</button>
+      </div>
+      <div class="relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-yellow-500/70 text-xs font-bold">Rp</span>
+        <input type="number" value="${opt.reseller_price ?? ''}" min="0" step="1000" placeholder="Harga reseller (kosongkan = pakai diskon global %)"
+          class="hm-input text-xs pl-9 font-bold w-full" style="border-color:rgba(234,179,8,.25)"
+          oninput="pricingOptions[${i}].reseller_price=this.value===''?'':(parseInt(this.value)||0)">
+      </div>
+
+      <!-- Sumber stok KHUSUS untuk varian/paket ini -->
+      <div class="flex gap-1.5 pt-1 border-t border-white/5 mt-0.5">
+        <button type="button" onclick="setRowStockSource(${i},'manual')"
+          class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all flex items-center justify-center gap-1
+          ${mode === 'manual' ? 'border-indigo-500/50 bg-purple-500/15 text-purple-300' : 'border-white/10 text-zinc-500'}">
+          <iconify-icon icon="mdi:key-variant"></iconify-icon> Manual
+        </button>
+        <button type="button" onclick="setRowStockSource(${i},'ghostseller')"
+          class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all flex items-center justify-center gap-1
+          ${mode === 'ghostseller' ? 'border-violet-500/50 bg-violet-500/15 text-violet-300' : 'border-white/10 text-zinc-500'}">
+          <iconify-icon icon="mdi:autorenew"></iconify-icon> GhostSeller
+        </button>
+      </div>
+      ${mode === 'ghostseller' ? `
+      <div class="pl-1 flex flex-col gap-1.5">
+        <select class="hm-input text-[11px] py-2" onchange="onGhostSellerProductChange(${i}, this.value)">
+          ${renderGhostSellerProductOptions(opt.ghostSellerProductId)}
+        </select>
+        <select class="hm-input text-[11px] py-2" onchange="pricingOptions[${i}].ghostSellerDurationId=this.value||null">
+          ${renderGhostSellerDurationOptions(opt.ghostSellerProductId, opt.ghostSellerDurationId)}
+        </select>
+        <p class="text-[9px] text-zinc-600">Key varian ini akan digenerate LIVE dari GhostSeller (akun partner) tiap ada order — stok dianggap tidak pernah habis. Pastikan API Key GhostSeller sudah diisi di menu Pengaturan.</p>
+      </div>` : ''}
+    </div>
+  `;
+  }).join('');
+}
+
+// Render <option> daftar PRODUK GhostSeller (bukan varian durasi -- itu di
+// renderGhostSellerDurationOptions, tergantung produk mana yang dipilih di
+// sini dulu). ghostSellerProductList diisi oleh loadGhostSellerProducts().
+function renderGhostSellerProductOptions(selectedProductId) {
+  if (ghostSellerProductList.length === 0) {
+    return `<option value="" disabled selected>(Memuat / belum ada produk GhostSeller...)</option>`;
+  }
+  return `<option value="">— Pilih produk GhostSeller —</option>` + ghostSellerProductList.map(p => {
+    const sel = selectedProductId === p.id ? 'selected' : '';
+    return `<option value="${p.id}" ${sel}>${p.name}</option>`;
+  }).join('');
+}
+
+// Render <option> daftar DURASI milik 1 produk GhostSeller yang dipilih.
+function renderGhostSellerDurationOptions(selectedProductId, selectedDurationId) {
+  const product = ghostSellerProductList.find(p => p.id === selectedProductId);
+  const durations = (product && product.product_durations) || [];
+  if (!selectedProductId) return `<option value="">— Pilih produk dulu —</option>`;
+  if (durations.length === 0) return `<option value="" disabled selected>(Produk ini belum punya durasi di GhostSeller)</option>`;
+  return `<option value="">— Pilih durasi GhostSeller —</option>` + durations.map(d => {
+    const sel = selectedDurationId === d.id ? 'selected' : '';
+    return `<option value="${d.id}" ${sel}>${d.label} (${d.days} hari) — Rp ${Number(d.price).toLocaleString('id-ID')}</option>`;
+  }).join('');
+}
+
+// Ganti produk GhostSeller di 1 baris varian -- reset durationId lama
+// karena durasi selalu spesifik ke 1 produk, lalu render ulang supaya
+// dropdown durasi ikut ter-update ke pilihan produk yang baru.
+function onGhostSellerProductChange(i, productId) {
+  pricingOptions[i].ghostSellerProductId = productId || null;
+  pricingOptions[i].ghostSellerDurationId = null;
+  renderPricingRows();
+}
+
+function setRowStockSource(i, mode) {
+  pricingOptions[i].stockSource = mode;
+  renderPricingRows();
+}
+
+function addPricingRow() {
+  // Default 'manual' (bukan 'auto') -- baris baru gampang kelewat belum
+  // di-set admin, dan 'auto' butuh kredensial vipibmstore yang sering
+  // belum diisi. Kalau default-nya 'manual', worst-case cuma "stok kosong,
+  // gagal jelas dari awal", bukan "keliatan berhasil dibuat tapi diam-diam
+  // butuh API key yang gak ada" (ini penyebab customer bayar tapi key gak
+  // pernah terkirim, kejadian nyata Sep 2026).
+  pricingOptions.push({ days: 7, price: 0, reseller_price: '', stockSource: 'manual', unit: 'hari', ghostSellerProductId: null, ghostSellerDurationId: null });
+  renderPricingRows();
+}
+
+function removePricingRow(i) {
+  pricingOptions.splice(i, 1);
+  renderPricingRows();
+}
+
+// ─── Keys Mode ───
+function setKeysMode(mode) {
+  keysMode = mode;
+  const a = document.getElementById('modeAppend');
+  const r = document.getElementById('modeReplace');
+  a.className = mode === 'append'
+    ? 'px-2 py-1 rounded text-[10px] font-bold transition-all bg-indigo-500/20 text-purple-300 border border-purple-500/30'
+    : 'px-2 py-1 rounded text-[10px] font-bold transition-all text-zinc-500 hover:text-white border border-transparent';
+  r.className = mode === 'replace'
+    ? 'px-2 py-1 rounded text-[10px] font-bold transition-all bg-orange-500/20 text-orange-300 border border-orange-500/30'
+    : 'px-2 py-1 rounded text-[10px] font-bold transition-all text-zinc-500 hover:text-white border border-transparent';
+}
+
+// Muat daftar produk dari Reseller API SEKALI saat halaman dibuka, dipakai
+// untuk isi dropdown mapping di SETIAP baris varian (lihat
+// renderProviderOptions). Admin tidak perlu klik ulang per baris.
+// loadResellerProducts() dihapus -- vipibmstore dicabut total, tidak ada
+// lagi dropdown produk provider yang perlu dimuat.
+
+// Muat katalog produk dari GhostSeller (Partner API) SEKALI saat halaman
+// dibuka -- sama alasan/pola dengan loadResellerProducts() di atas, tapi
+// datanya nested (tiap produk bawa product_durations[] sendiri) karena
+// GhostSeller butuh 2 id (productId + durationId), bukan 1.
+async function loadGhostSellerProducts() {
+  const res = await fetch('/admin/ghostseller-api/products');
+  const data = await res.json().catch(() => ({ success: false }));
+
+  if (!data.success) {
+    // Diam-diam gagal (tidak showToast) kalau memang belum dikonfigurasi
+    // sama sekali -- supaya tidak mengganggu admin yang tidak pakai fitur
+    // ini. Cukup log untuk debug.
+    console.warn('GhostSeller products belum bisa dimuat:', data.message);
+    ghostSellerProductList = [];
+  } else {
+    ghostSellerProductList = data.products || [];
+  }
+  renderPricingRows();
+}
+
+// ─── Render info keys/stok ───
+function renderKeyInfo() {
+  const p = currentProduct;
+  const keys = p.keys || [];
+  const totalKeys = keys.length;
+
+  // Stok per item
+  const stockHtml = (p.items || []).map(item => {
+    // FIX BUG "Keys & Stok Manual" (laporan Analisa_Bug_Varian_Waktu): regex
+    // sebelumnya cuma cari suffix "DAYS", jadi item dengan label baru
+    // "1 JAM"/"1 MENIT" gagal di-parse (days = null) dan baris stoknya
+    // salah/kosong di panel ini.
+    const m = (item.l || '').match(/(\d+)\s+(DAYS|HARI|JAM|MENIT)\b/i);
+    const days = m ? parseInt(m[1]) : null;
+    let stok;
+    if (days) {
+      const tagged = keys.filter(k => { const pts = k.split(':'); return pts.length > 1 && parseInt(pts[pts.length-1]) === days; }).length;
+      const generic = keys.filter(k => !k.includes(':')).length;
+      stok = tagged > 0 ? tagged : generic;
+    } else {
+      stok = keys.filter(k => !k.includes(':')).length;
+    }
+    const color = stok === 0 ? 'text-red-400 border-red-500/30 bg-red-500/10' : stok < 5 ? 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+    return `<div class="flex items-center justify-between p-3 rounded-xl border ${color}">
+      <span class="text-xs font-bold text-white">${item.l}</span>
+      <span class="text-xs font-black">${stok} stok</span>
+    </div>`;
+  }).join('');
+  document.getElementById('stockInfo').innerHTML = stockHtml;
+
+  // Preview keys existing
+  const wrap = document.getElementById('existingKeys');
+  if (totalKeys > 0) {
+    wrap.classList.remove('hidden');
+    document.getElementById('keyCountLabel').textContent = `${totalKeys} key tersimpan`;
+    const chips = keys.slice(0, 30).map(k => `<span class="key-chip">${k}</span>`).join('');
+    document.getElementById('keyChips').innerHTML = chips + (totalKeys > 30 ? `<span class="key-chip text-zinc-500">+${totalKeys - 30} lainnya</span>` : '');
+  } else {
+    wrap.classList.add('hidden');
+  }
+}
+
+async function clearAllKeys() {
+  if (!confirm('Hapus semua keys? Stok akan menjadi 0.')) return;
+  const res = await fetch(`/admin/product/keys/${currentProduct.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys: '', mode: 'replace' })
+  });
+  const data = await res.json();
+  if (data.success) {
+    currentProduct.keys = [];
+    renderKeyInfo();
+    showToast('Semua keys dihapus', 'success');
+  }
+}
+
+// ─── Simpan ───
+// Sumber stok sekarang PER-BARIS varian (pricingOptions[i].stockSource),
+// bukan lagi 1 pengaturan global untuk seluruh produk. vipibmstore ('auto')
+// sudah dicabut total -- cuma ada 'manual' dan 'ghostseller'. Field
+// stockMode di level produk (top-level) tetap dikirim sebagai
+// ringkasan/fallback: 'ghostseller' kalau SEMUA baris ghostseller, 'manual'
+// kalau SEMUA baris manual, 'mixed' kalau campuran.
+async function saveProduct() {
+  const imgUrl  = document.getElementById('imgUrlInput').value.trim();
+  const keysRaw = document.getElementById('keysInput').value.trim();
+
+  // Validasi harga -- tiap baris bawa stockSource sendiri.
+  const validPricing = pricingOptions
+    .filter(o => o.days > 0)
+    .map(o => ({
+      days: o.days,
+      price: o.price,
+      reseller_price: (o.reseller_price !== '' && o.reseller_price != null && !isNaN(parseInt(o.reseller_price)) && parseInt(o.reseller_price) >= 0)
+        ? parseInt(o.reseller_price) : null,
+      stockSource: o.stockSource === 'ghostseller' ? 'ghostseller' : 'manual',
+      unit: ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari',
+      ghostSellerProductId: (o.stockSource === 'ghostseller' && o.ghostSellerProductId) ? o.ghostSellerProductId : null,
+      ghostSellerDurationId: (o.stockSource === 'ghostseller' && o.ghostSellerDurationId) ? o.ghostSellerDurationId : null
+    }));
+  if (validPricing.length === 0) {
+    showToast('Tambahkan minimal 1 paket harga', 'error');
+    return;
+  }
+  const missingGhostSellerMapping = validPricing.find(o => o.stockSource === 'ghostseller' && (!o.ghostSellerProductId || !o.ghostSellerDurationId));
+  if (missingGhostSellerMapping) {
+    showToast(`Varian ${missingGhostSellerMapping.days} ${missingGhostSellerMapping.unit} pakai GhostSeller tapi Product/Duration ID belum dipilih`, 'error');
+    return;
+  }
+
+  const ghostSellerCount = validPricing.filter(o => o.stockSource === 'ghostseller').length;
+  const manualCount = validPricing.length - ghostSellerCount;
+  const summaryStockMode = manualCount === validPricing.length ? 'manual' : (manualCount === 0 ? 'ghostseller' : 'mixed');
+
+  const res = await fetch(`/admin/product/${currentProduct.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bannerUrl: imgUrl,
+      status: selectedStatus,
+      operationalStatus: selectedOpStatus,
+      keys: keysRaw,
+      keysMode,
+      platforms: selectedPlatforms,
+      pricingOptions: validPricing,
+      stockMode: summaryStockMode
+    })
+  });
+  const data = await res.json();
+  if (data.success) {
+    showToast('Produk berhasil disimpan!', 'success');
+    currentProduct = data.data;
+    document.getElementById('keysInput').value = '';
+    renderKeyInfo();
+  } else {
+    showToast(data.message || 'Gagal menyimpan', 'error');
+  }
+}
+
+async function confirmDelete() {
+  if (!confirm('Hapus produk "' + currentProduct.name + '"? Tidak bisa dikembalikan.')) return;
+  const res = await fetch(`/admin/product/delete/${currentProduct.id}`, { method: 'POST' });
+  const data = await res.json();
+  if (data.success) { showToast('Produk dihapus', 'success'); setTimeout(() => location.href = '/admin', 1000); }
+  else showToast(data.message, 'error');
+}
+
+function showToast(msg, type='info') {
+  let c = document.getElementById('toast-container');
+  if (!c) { c = document.createElement('div'); c.id = 'toast-container'; document.body.appendChild(c); }
+  const t = document.createElement('div');
+  const cls = { success:'bg-emerald-500/20 border-emerald-500/40 text-emerald-300', error:'bg-red-500/20 border-red-500/40 text-red-300', info:'bg-indigo-500/20 border-indigo-500/40 text-purple-300' };
+  t.className = `fixed top-4 right-4 z-[99999] px-4 py-3 rounded-xl border backdrop-blur-sm text-sm font-bold ${cls[type]||cls.info} translate-x-0 transition-all`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', loadProduct);
+</script>
