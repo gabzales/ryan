@@ -1180,7 +1180,12 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             </div>
             <div>
                 <div class="setting-row-label">API Key (gs_partner_...)</div>
-                <input type="text" name="apiKey" value="<%= settings.ghostSellerApi?.apiKey||'' %>" class="hm-input font-mono text-xs" placeholder="gs_partner_...">
+                <input type="text" name="apiKey" autocomplete="off" spellcheck="false" value="<%= settings.ghostSellerApi?.apiKey||'' %>" class="hm-input font-mono text-xs" placeholder="gs_partner_...">
+                <!-- autocomplete="off" -- browser (terutama Chrome mobile) suka
+                     nyimpen histori isian field ini dan diam-diam nampilin nilai
+                     LAMA yang pernah diketik/paste sebelumnya, beda dari value
+                     yang dikirim server di atas -- bikin keliatan "udah bener di
+                     layar" padahal yang beneran ke-test field yang berbeda. -->
             </div>
             <button type="button" onclick="testGhostSellerApi()" class="w-full py-2 rounded-xl text-xs font-bold text-zinc-400 border border-white/10 bg-white/3 hover:bg-white/8 transition-all flex items-center justify-center gap-1.5">
                 <iconify-icon icon="mdi:wifi-check"></iconify-icon> Test Koneksi API
@@ -2433,29 +2438,41 @@ document.getElementById('ghostSellerApiForm').addEventListener('submit', async f
     else toast(d.message, 'error');
 });
 
+// FIX (Sep 2026): sebelumnya tombol ini nge-test langsung dari isian form
+// yang BELUM TENTU sama persis dengan yang tersimpan di server (browser,
+// terutama Chrome mobile, suka nampilin nilai lama dari histori
+// autocomplete field meski server ngirim value yang benar -- lihat
+// catatan autocomplete="off" di HTML input-nya). Simtomnya: "di layar
+// udah bener, tapi pas di-test kepakai yang lain". Sekarang tombol ini
+// SELALU simpan dulu apa yang ada di form ke server, baru test PERSIS
+// nilai yang barusan tersimpan itu -- jadi "yang keliatan" dan "yang
+// diuji" dijamin sama, gak ada lagi ruang buat beda gara-gara cache
+// browser.
 async function testGhostSellerApi() {
     const form = document.getElementById('ghostSellerApiForm');
     const apiKey = form.querySelector('[name=apiKey]').value;
     const baseUrl = form.querySelector('[name=baseUrl]').value;
     const el = document.getElementById('testResultGhostSellerApi');
     el.className = 'text-[11px] p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300';
-    el.textContent = 'Menguji koneksi...';
+    el.textContent = 'Menyimpan kredensial...';
     el.classList.remove('hidden');
+
+    const saveResult = await api('/admin/settings/ghostseller-api', { apiKey, baseUrl });
+    if (!saveResult.success) {
+        el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
+        el.textContent = '✗ Gagal menyimpan sebelum test: ' + (saveResult.message || 'unknown error');
+        return;
+    }
+
+    el.textContent = 'Menguji koneksi...';
     const d = await api('/admin/ghostseller-api/test', { apiKey, baseUrl });
     if (d.success) {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300';
-        el.textContent = `✓ Koneksi berhasil! ${d.productCount||0} produk ditemukan di katalog GhostSeller.`;
+        el.textContent = `✓ Tersimpan & koneksi berhasil! ${d.productCount||0} produk ditemukan di katalog GhostSeller.`;
     } else {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
         const detail = [d.status ? `HTTP ${d.status}` : null, d.code || null].filter(Boolean).join(' · ');
-        // DEBUG SEMENTARA (Sep 2026): tampilin panjang & 12-char awal key
-        // dari kedua sisi (yang dikirim vs yang tersimpan di GhostSeller)
-        // biar ketauan tanpa buka log Vercel -- lihat catatan di
-        // partner/products/route.ts. HAPUS baris debugLine ini begitu
-        // penyebab 401 ketemu & fix-nya terkonfirmasi.
-        const debugLine = d.debug ? `\n[debug] header: ${d.debug.headerKeyLength} char "${d.debug.headerKeyPrefix}"..."${d.debug.headerKeySuffix}" (checksum ${d.debug.headerChecksum}) | GhostSeller: ${d.debug.configuredKeyLength} char "${d.debug.configuredKeyPrefix}"..."${d.debug.configuredKeySuffix}" (checksum ${d.debug.configuredChecksum}) | sumber: ${d.debug.configSource}` : '';
-        el.textContent = '✗ ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '') + debugLine;
-        el.style.whiteSpace = 'pre-line';
+        el.textContent = '✗ Tersimpan, tapi koneksi gagal: ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '');
     }
 }
 
