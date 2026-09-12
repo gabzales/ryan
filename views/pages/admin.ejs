@@ -1160,7 +1160,29 @@ textarea.hm-input{resize:vertical;min-height:80px;}
     <div class="neon-card p-5 mb-3" style="border-color:rgba(124,47,214,.2)">
         <div class="text-xs font-bold text-violet-400 mb-4 flex items-center gap-2">
             <iconify-icon icon="mdi:autorenew"></iconify-icon> GhostSeller Partner API (Auto Restock)
+            <% if (settings.ghostSellerApi?.lastTestStatus === 'ok') { %>
+                <span class="ml-auto text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center gap-1">
+                    <iconify-icon icon="mdi:check-circle"></iconify-icon> Terhubung
+                </span>
+            <% } else if (settings.ghostSellerApi?.lastTestStatus === 'failed') { %>
+                <span class="ml-auto text-[10px] font-bold px-2 py-1 rounded-full bg-red-500/15 text-red-300 flex items-center gap-1">
+                    <iconify-icon icon="mdi:close-circle"></iconify-icon> Gagal Konek
+                </span>
+            <% } %>
         </div>
+        <% if (settings.ghostSellerApi?.lastTestAt) { %>
+        <p class="text-[10px] text-zinc-600 mb-3 -mt-2">
+            Terakhir dites: <%= new Date(settings.ghostSellerApi.lastTestAt).toLocaleString('id-ID') %>
+            <% if (settings.ghostSellerApi.lastTestStatus === 'failed' && settings.ghostSellerApi.lastTestMessage) { %>
+                — <span class="text-red-400"><%= settings.ghostSellerApi.lastTestMessage %></span>
+            <% } %>
+            <!-- Status ini ke-update OTOMATIS tiap kali kredensial disimpan
+                 (simpan & test sekarang 1 operasi di server, lihat
+                 POST /admin/settings/ghostseller-api) -- gak perlu klik Test
+                 manual buat tau status koneksi masih hidup apa nggak begitu
+                 halaman ini dibuka lagi. -->
+        </p>
+        <% } %>
         <p class="text-[11px] text-zinc-500 mb-3">
             Ini integrasi ke platform <strong class="text-violet-300">GhostSeller</strong>
             (ghostseller.my.id) yang juga dikelola sendiri. Varian produk dengan sumber stok
@@ -2434,8 +2456,11 @@ document.getElementById('ghostSellerApiForm').addEventListener('submit', async f
     const fd = new FormData(this);
     const data = Object.fromEntries(fd);
     const d = await api('/admin/settings/ghostseller-api', data);
-    if (d.success) toast('Kredensial GhostSeller disimpan!','success');
-    else toast(d.message, 'error');
+    if (!d.success) { toast(d.message, 'error'); return; }
+    // Sejak simpan & test digabung di server, tombol "Simpan" ini juga
+    // otomatis dapat hasil test-nya -- tampilkan langsung, jangan cuma
+    // bilang "tersimpan" padahal ternyata gagal connect.
+    toast(d.testSuccess ? 'Tersimpan & koneksi berhasil!' : ('Tersimpan, tapi koneksi gagal: ' + (d.testMessage || '')), d.testSuccess ? 'success' : 'error');
 });
 
 // FIX (Sep 2026): sebelumnya tombol ini nge-test langsung dari isian form
@@ -2448,31 +2473,36 @@ document.getElementById('ghostSellerApiForm').addEventListener('submit', async f
 // nilai yang barusan tersimpan itu -- jadi "yang keliatan" dan "yang
 // diuji" dijamin sama, gak ada lagi ruang buat beda gara-gara cache
 // browser.
+// FIX (Sep 2026): dulu ini 2 pemanggilan terpisah dari browser (simpan,
+// lalu test) -- kalau salah satu gagal di tengah jalan (koneksi putus,
+// browser nutup tab, dll) hasilnya bisa "kesimpen versi A, tapi yang
+// ke-test masih versi B". Sekarang cuma 1 pemanggilan ke server, server
+// yang simpan+test dalam satu operasi atomik (lihat endpoint gabungan
+// POST /admin/settings/ghostseller-api) dan CATAT hasilnya permanen di
+// settings -- makanya status ini juga muncul lagi kalau halaman dibuka
+// ulang nanti, gak ilang begitu di-refresh.
 async function testGhostSellerApi() {
     const form = document.getElementById('ghostSellerApiForm');
     const apiKey = form.querySelector('[name=apiKey]').value;
     const baseUrl = form.querySelector('[name=baseUrl]').value;
     const el = document.getElementById('testResultGhostSellerApi');
     el.className = 'text-[11px] p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300';
-    el.textContent = 'Menyimpan kredensial...';
+    el.textContent = 'Menyimpan & menguji koneksi...';
     el.classList.remove('hidden');
 
-    const saveResult = await api('/admin/settings/ghostseller-api', { apiKey, baseUrl });
-    if (!saveResult.success) {
+    const d = await api('/admin/settings/ghostseller-api', { apiKey, baseUrl });
+    if (!d.success) {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
-        el.textContent = '✗ Gagal menyimpan sebelum test: ' + (saveResult.message || 'unknown error');
+        el.textContent = '✗ Gagal menyimpan: ' + (d.message || 'unknown error');
         return;
     }
-
-    el.textContent = 'Menguji koneksi...';
-    const d = await api('/admin/ghostseller-api/test', { apiKey, baseUrl });
-    if (d.success) {
+    if (d.testSuccess) {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300';
         el.textContent = `✓ Tersimpan & koneksi berhasil! ${d.productCount||0} produk ditemukan di katalog GhostSeller.`;
     } else {
         el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
-        const detail = [d.status ? `HTTP ${d.status}` : null, d.code || null].filter(Boolean).join(' · ');
-        el.textContent = '✗ Tersimpan, tapi koneksi gagal: ' + (d.message || 'Koneksi gagal') + (detail ? ` (${detail})` : '');
+        const detail = [d.testStatus ? `HTTP ${d.testStatus}` : null, d.testCode || null].filter(Boolean).join(' · ');
+        el.textContent = '✗ Tersimpan, tapi koneksi gagal: ' + (d.testMessage || 'Koneksi gagal') + (detail ? ` (${detail})` : '');
     }
 }
 

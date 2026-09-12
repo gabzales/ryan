@@ -3566,18 +3566,44 @@ app.post('/admin/settings/genspay', requireAdmin, async (req, res) => {
 //   3. Di Edit Produk, set salah satu varian ke Stock Source
 //      "GhostSeller (Auto Restock)" lalu isi Product ID + Duration ID
 //      GhostSeller-nya (lihat tombol "Lihat Katalog GhostSeller").
+// Simpan + langsung test koneksi dalam SATU langkah, dan catat hasilnya
+// permanen di settings (lastTestStatus/lastTestAt/lastTestMessage) --
+// supaya statusnya kelihatan tiap kali halaman ini dibuka lagi, TANPA
+// admin harus inget-inget/klik Test manual tiap kali. Ini gantiin pola
+// lama (2 tombol terpisah: Simpan & Test) yang bikin bingung "yang
+// keliatan di layar" vs "yang beneran ke-test" bisa beda kalau salah
+// urutan klik atau field-nya kena autofill browser (lihat insiden
+// Sep 2026 di CHANGELOG).
 app.post('/admin/settings/ghostseller-api', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
     const { apiKey, baseUrl } = req.body;
 
-    settings.ghostSellerApi = {
-      apiKey: apiKey !== undefined ? apiKey : (settings.ghostSellerApi?.apiKey || ''),
-      baseUrl: baseUrl !== undefined ? baseUrl : (settings.ghostSellerApi?.baseUrl || 'https://www.ghostseller.my.id/api/v1/partner')
-    };
+    const nextApiKey = apiKey !== undefined ? apiKey : (settings.ghostSellerApi?.apiKey || '');
+    const nextBaseUrl = baseUrl !== undefined ? baseUrl : (settings.ghostSellerApi?.baseUrl || 'https://www.ghostseller.my.id/api/v1/partner');
 
+    // Test pakai nilai yang BARU AJA mau disimpan ini juga (bukan baca
+    // ulang dari settings.json) -- jadi dijamin 100% nguji nilai yang
+    // sama persis dengan yang bakal kesimpen sebentar lagi.
+    const testResult = await ghostSellerApi.getProducts({ ghostSellerApi: { apiKey: nextApiKey, baseUrl: nextBaseUrl } });
+
+    settings.ghostSellerApi = {
+      apiKey: nextApiKey,
+      baseUrl: nextBaseUrl,
+      lastTestStatus: testResult.success ? 'ok' : 'failed',
+      lastTestAt: new Date().toISOString(),
+      lastTestMessage: testResult.success ? null : (testResult.message || 'Koneksi gagal')
+    };
     await writeDB('settings.json', settings);
-    res.json({ success: true });
+
+    res.json({
+      success: true, // nyimpennya berhasil, terlepas dari hasil test
+      testSuccess: testResult.success,
+      testMessage: testResult.message,
+      testCode: testResult.code,
+      testStatus: testResult.status,
+      productCount: testResult.success ? (Array.isArray(testResult.data?.data) ? testResult.data.data.length : 0) : undefined
+    });
   } catch (error) {
     res.json({ success: false, message: error.message });
   }
@@ -3585,6 +3611,8 @@ app.post('/admin/settings/ghostseller-api', requireAdmin, async (req, res) => {
 
 // Test koneksi GhostSeller Partner API — pakai nilai dari form (belum
 // tentu sudah disimpan), sama pola dengan /admin/reseller-api/test.
+// Dipertahankan buat kompatibilitas, tapi alur utama sekarang lewat
+// endpoint gabungan di atas.
 app.post('/admin/ghostseller-api/test', requireAdmin, async (req, res) => {
   try {
     const { apiKey, baseUrl } = req.body;
