@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design tokens for Ryan New Era (RYANEWERA).
+  Fixed single dark-purple/violet + silver theme matching the brand logo
+  (RN crown mark). No runtime theme switching in this build -- unlike the
+  base GhostNewEra codebase this was forked from, there is exactly one
+  palette here, set directly as the :root default.
+*/
+:root {
+  --bg: #0d0713;
+  --surface: #150a1f;
+  --surface-2: #1d0f2b;
+  --border: #3a1f52;
+  --border-strong: #55308a;
+
+  --ink: #f3ecff;
+  --ink-dim: #b9a6d9;
+  --ink-faint: #7c6699;
+
+  /* Generate Keys -- primary brand violet, matches logo "RN" lettering */
+  --primary: #8b3ff0;
+  --primary-dim: #2a1642;
+  /* History Key */
+  --rose: #c026d3;
+  --rose-dim: #2e1338;
+  /* Top Up */
+  --teal: #a855f7;
+  --teal-dim: #24123a;
+  /* Top-up History -- silver accent, echoes the logo's "N" and crown */
+  --amber: #c4b5fd;
+  --amber-dim: #241a3a;
+
+  --danger: #ef4444;
+  --danger-dim: #2e1113;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  color: var(--ink);
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+::selection {
+  background: var(--primary);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
