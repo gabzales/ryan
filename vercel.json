@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "views/**",
+          "public/**",
+          "database/**",
+          "supabase.js",
+          "supabase-schema.sql"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(wp-.*|wordpress.*|xmlrpc.*|phpmyadmin.*|cgi-bin/.*|\\.git.*|\\.env.*|backup.*|.*\\.(php|asp|aspx|jsp|env|sql|bak|zip|tar|gz|rar|7z|old|ini|log|map))",
+      "status": 404,
+      "headers": {
+        "Cache-Control": "public, s-maxage=3600"
+      }
+    },
+    {
+      "src": "/uploads/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/server.js"
+    }
+  ]
+}
