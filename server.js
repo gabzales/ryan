@@ -705,11 +705,11 @@ const createQRISPayment = (orderId, amount, settings) => {
 // Pakasir bisa salah dicek ke GensPay (atau sebaliknya) kalau admin sempat
 // ganti mode pembayaran di tengah jalan — akibatnya status selalu gagal
 // match dan key tidak pernah terkirim walau sudah dibayar.
-const checkPaymentStatus = (orderId, amount, settings, gatewayOverride) => {
+const checkPaymentStatus = (orderId, amount, settings, gatewayOverride, txHint) => {
   const mode = gatewayOverride || settings.qrisMode || 'static';
   if (mode === 'pakasir') return checkPaymentStatusPakasir(orderId, amount, settings);
   if (mode === 'stenly') return checkPaymentStatusStenly(orderId, amount, settings);
-  if (mode === 'autogopay') return checkPaymentStatusAutogopay(orderId, amount, settings);
+  if (mode === 'autogopay') return checkPaymentStatusAutogopay(orderId, amount, settings, txHint);
   return checkPaymentStatusGenspay(orderId, amount, settings);
 };
 
@@ -915,23 +915,33 @@ const checkPaymentStatusStenly = (orderId, amount, settings) => {
   });
 };
 
-// ── AutoGopay (autogopay.net) ──
-// Payment gateway QRIS dinamis yang terhubung ke akun GoPay Merchant.
-// Endpoint (base URL https://autogopay.net):
-//   POST /api/v1/payment/create              → buat invoice, balik qris_string
-//   GET  /api/v1/payment/status/{reference}  → cek status (pending/success/failed/expired)
-//   POST /api/v1/payment/cancel              → (tidak dipakai di app ini)
-// Auth: header X-API-Key (iak_...). Webhook Secret itu kredensial TERPISAH
-// (dipakai khusus verifikasi signature, lihat app.post('/webhook/autogopay')).
-// `reference` yang kita kirim = orderId transaksi kita (VR-/DEP-/RES-...),
-// jadi webhook & status check bisa dicocokkan balik ke transaksi lokal.
-const AUTOGOPAY_DEFAULT_BASE_URL = 'https://autogopay.net';
+// ── AutoGopay (autogopay.site) — API v1-gateway ──
+// Docs: https://autogopay.site/docs
+// Base URL : https://v1-gateway.autogopay.site
+// Auth     : header  Authorization: Bearer <API_KEY>
+// Endpoint (GoPay & QRIS):
+//   POST /qris/generate  {amount}          → {success, data:{transaction_id, order_id, qr_string, qr_url, checkout_url, expiry_time,...}}
+//   POST /qris/status    {transaction_id}  → status: pending | settlement | expire | cancel
+//   POST /qris/cancel    {transaction_id}  (tidak dipakai di app ini)
+//   POST /transactions                      → riwayat transaksi (dipakai buat Test Koneksi)
+// PENTING: order_id & transaction_id dibuat oleh AutoGopay (tidak bisa kirim
+// reference sendiri). Jadi kita simpan keduanya di transaksi lokal sebagai
+// `gatewayRef` dan dipakai buat cek status + mencocokkan webhook.
+// Webhook: header X-Signature = HMAC-SHA256(raw body, API KEY) hex. Tidak ada
+// "webhook secret" terpisah lagi — secret-nya adalah API Key.
+const AUTOGOPAY_DEFAULT_BASE_URL = 'https://v1-gateway.autogopay.site';
 
-// Admin kadang mengisi base URL ala gateway lain (…/api/v1) — buang suffix itu
-// supaya path tidak dobel (/api/v1/api/v1/payment/...).
+// Normalisasi base URL: domain saja. Domain lama (autogopay.net / autogopay.site
+// / www.) otomatis diarahkan ke gateway baru; suffix /api/v1 dibuang.
 function normalizeAutogopayBaseUrl(raw) {
-  const v = String(raw || '').trim() || AUTOGOPAY_DEFAULT_BASE_URL;
-  return v.replace(/\/+$/, '').replace(/\/api\/v1(\/payment)?$/i, '').replace(/\/+$/, '');
+  let v = String(raw || '').trim();
+  if (!v) return AUTOGOPAY_DEFAULT_BASE_URL;
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try {
+    const u = new URL(v);
+    if (/^(www\.)?autogopay\.(net|site)$/i.test(u.hostname)) return AUTOGOPAY_DEFAULT_BASE_URL;
+  } catch (e) { return AUTOGOPAY_DEFAULT_BASE_URL; }
+  return v.replace(/\/+$/, '').replace(/\/api(\/v\d+)?$/i, '').replace(/\/+$/, '');
 }
 
 function getAutogopayCreds(settings) {
@@ -943,7 +953,7 @@ function getAutogopayCreds(settings) {
 
 // Satu helper request untuk semua endpoint AutoGopay. Selalu resolve dengan
 // { statusCode, json, raw } (json = null kalau body bukan JSON valid) — yang
-// memutuskan error/tidak adalah pemanggil, karena arti 404 beda per endpoint.
+// memutuskan error/tidak adalah pemanggil.
 function autogopayRequest(creds, method, apiPath, bodyObj) {
   return new Promise((resolve, reject) => {
     if (!creds.apiKey) return reject(new Error('API Key AutoGopay belum dikonfigurasi'));
@@ -951,9 +961,13 @@ function autogopayRequest(creds, method, apiPath, bodyObj) {
     try { url = new URL(joinUrlPath(creds.baseUrl, apiPath)); } catch (e) { return reject(new Error('Base URL AutoGopay tidak valid')); }
     if (url.protocol !== 'https:') return reject(new Error('Base URL AutoGopay harus https://'));
 
-    const body = bodyObj ? JSON.stringify(bodyObj) : null;
-    const headers = { 'X-API-Key': creds.apiKey, 'Accept': 'application/json' };
-    if (body) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(body); }
+    const body = JSON.stringify(bodyObj || {});
+    const headers = {
+      'Authorization': 'Bearer ' + creds.apiKey,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body)
+    };
 
     const req = https.request({
       hostname: url.hostname, port: url.port || 443,
@@ -969,60 +983,75 @@ function autogopayRequest(creds, method, apiPath, bodyObj) {
     });
     req.on('timeout', () => { req.destroy(); reject(new Error('AutoGopay timeout')); });
     req.on('error', e => reject(new Error('Network error: ' + e.message)));
-    if (body) req.write(body);
+    req.write(body);
     req.end();
   });
 }
 
+// "2026-03-27 20:49:00" (WIB, tanpa timezone) → ISO dengan offset +07:00,
+// supaya new Date() di frontend/server (Vercel = UTC) tidak geser 7 jam.
+function autogopayParseTime(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(s) ? s.replace(' ', 'T') + '+07:00' : s;
+  const t = Date.parse(iso);
+  return isNaN(t) ? null : new Date(t).toISOString();
+}
+
 const createQRISPaymentAutogopay = async (orderId, amount, settings) => {
   const creds = getAutogopayCreds(settings);
-  const r = await autogopayRequest(creds, 'POST', '/api/v1/payment/create', {
-    amount: Number(amount),
-    reference: String(orderId)
-  });
+  const r = await autogopayRequest(creds, 'POST', '/qris/generate', { amount: Math.round(Number(amount)) });
   const d = r.json?.data;
-  if (!(r.statusCode >= 200 && r.statusCode < 300) || !r.json?.success || !d?.qris_string) {
-    throw new Error(r.json?.message || `AutoGopay error (HTTP ${r.statusCode}): ${String(r.raw || '').slice(0, 150) || '(response kosong)'}`);
+  if (!(r.statusCode >= 200 && r.statusCode < 300) || r.json?.success === false || !d?.qr_string || !d?.transaction_id) {
+    throw new Error(r.json?.message || r.json?.error || `AutoGopay error (HTTP ${r.statusCode}): ${String(r.raw || '').slice(0, 150) || '(response kosong)'}`);
   }
-  // expired_at dipakai langsung oleh new Date() di frontend (timer hitung
-  // mundur) — kalau formatnya tidak bisa diparse, kirim null daripada NaN:NaN.
-  const expiredAt = (d.expired_at && !isNaN(Date.parse(d.expired_at))) ? d.expired_at : null;
   const total = Number(d.amount);
-  return { qr_string: d.qris_string, total_payment: total > 0 ? total : amount, expired_at: expiredAt };
+  return {
+    qr_string: d.qr_string,
+    total_payment: total > 0 ? total : amount,
+    expired_at: autogopayParseTime(d.expiry_time),
+    gateway_ref: { transactionId: String(d.transaction_id), orderId: d.order_id ? String(d.order_id) : null, checkoutUrl: d.checkout_url || null }
+  };
 };
 
-// Status check. Dipakai /check-payment (polling pembeli, jadi cadangan kalau
-// webhook telat/tidak masuk) dan /debug. Hasilnya dinormalisasi ke kosakata
-// yang sudah dipahami /check-payment: success → paid; expired → expired;
-// failed (= dibatalkan/gagal, final) → 'cancelled' supaya ikut ditandai expired.
-const checkPaymentStatusAutogopay = async (orderId, amount, settings) => {
+// Status check. Dipakai /check-payment (polling pembeli, cadangan kalau
+// webhook telat) dan /debug. Dinormalisasi ke kosakata /check-payment:
+// settlement → 'settlement' (paid); expire → 'expired'; cancel → 'cancelled'.
+const checkPaymentStatusAutogopay = async (orderId, amount, settings, txHint) => {
   const creds = getAutogopayCreds(settings);
-  const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/${encodeURIComponent(orderId)}`);
-  const d = r.json?.data;
-  if (!(r.statusCode >= 200 && r.statusCode < 300) || !r.json?.success || !d?.status) {
-    throw new Error(r.json?.message || `AutoGopay error (HTTP ${r.statusCode})`);
+  // txHint = transaksi yang sudah dimuat pemanggil (hemat 1x baca DB per polling).
+  let tx = txHint && txHint.orderId === orderId ? txHint : null;
+  if (!tx) { const transactions = await readFresh('transactions.json'); tx = transactions.find(t => t.orderId === orderId); }
+  const gwId = tx?.gatewayRef?.transactionId;
+  if (!gwId) throw new Error(`AutoGopay: transaction_id untuk order ${orderId} tidak tersimpan (transaksi dibuat sebelum update API)`);
+  const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId });
+  const j = r.json || {};
+  const d = j.data || j;
+  const raw = d.transaction_status || d.status || j.status;
+  if (!(r.statusCode >= 200 && r.statusCode < 300) || j.success === false || !raw) {
+    throw new Error(j.message || j.error || `AutoGopay error (HTTP ${r.statusCode}): ${String(r.raw || '').slice(0, 120)}`);
   }
-  // Pastikan yang dibalas memang transaksi yang kita tanya — jangan sampai
-  // status invoice lain ikut menandai order ini lunas.
-  if (d.reference && String(d.reference) !== String(orderId)) {
-    throw new Error(`AutoGopay: reference respons (${d.reference}) tidak cocok dengan order ${orderId}`);
+  if (d.transaction_id && String(d.transaction_id) !== String(gwId)) {
+    throw new Error(`AutoGopay: transaction_id respons (${d.transaction_id}) tidak cocok dengan order ${orderId}`);
   }
-  let status = String(d.status).toLowerCase();
-  if (status === 'failed') status = 'cancelled';
+  let status = String(raw).toLowerCase();
+  if (status === 'expire') status = 'expired';
+  else if (status === 'cancel') status = 'cancelled';
   return { status };
 };
 
-// Test koneksi TANPA bikin invoice sungguhan: tanya status reference acak.
-//   404 → API Key diterima, endpoint hidup, reference tidak ada (normal) ✓
-//   401 → API Key salah/nonaktif   403 → akun tidak berlangganan/tanpa izin
+// Test koneksi TANPA bikin invoice: POST /transactions (riwayat transaksi).
+//   2xx → API Key diterima ✓      401/403 → API Key salah / tidak punya izin
 const testAutogopayConnection = async (settings) => {
   const creds = getAutogopayCreds(settings);
-  const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/test-ping-${Date.now()}`);
-  if (r.statusCode === 404 || (r.statusCode >= 200 && r.statusCode < 300)) return true;
-  if (r.statusCode === 401) throw new Error(r.json?.message || 'API Key AutoGopay tidak valid / dinonaktifkan (401)');
-  if (r.statusCode === 403) throw new Error(r.json?.message || 'Akun AutoGopay tidak berlangganan / tidak punya izin (403)');
-  throw new Error(r.json?.message || `AutoGopay membalas HTTP ${r.statusCode}: ${String(r.raw || '').slice(0, 120)}`);
+  const r = await autogopayRequest(creds, 'POST', '/transactions', {});
+  if (r.statusCode >= 200 && r.statusCode < 300 && r.json?.success !== false) return true;
+  const msg = String(r.json?.message || r.json?.error || '');
+  if (r.statusCode === 401 || r.statusCode === 403) throw new Error(msg || 'API Key AutoGopay tidak valid / tidak punya izin (' + r.statusCode + ')');
+  if (r.statusCode === 404) throw new Error(`Endpoint AutoGopay tidak ditemukan ("${msg.slice(0, 80)}"). Base URL harus https://v1-gateway.autogopay.site. URL yang dipanggil: ${joinUrlPath(creds.baseUrl, '/transactions')}`);
+  throw new Error(msg || `AutoGopay membalas HTTP ${r.statusCode}: ${String(r.raw || '').slice(0, 120)}`);
 };
+
 
 // Kirim notifikasi WhatsApp otomatis ke admin via Fonnte (jika token dikonfigurasi)
 const sendWhatsAppNotif = (target, message, settings) => {
@@ -1614,7 +1643,7 @@ app.post('/reseller/join', requireAuth, async (req, res) => {
     const orderCode = generateOrderCode();
     const qrisMode = settings.qrisMode || 'static';
 
-    let qrString = null, isStatic = false;
+    let qrString = null, isStatic = false, gatewayRef = null;
 
     if (qrisMode === 'static') {
       if (!settings.qrisStaticImage) return res.json({ success: false, message: 'Admin belum mengatur QRIS. Hubungi admin.' });
@@ -1623,6 +1652,7 @@ app.post('/reseller/join', requireAuth, async (req, res) => {
       try {
         const r = await createQRISPayment(orderId, price, settings);
         qrString = r.qr_string;
+        gatewayRef = r.gateway_ref || null;
       } catch (e) {
         // Tidak lagi diam-diam pindah ke QRIS statis; pembeli diberi tahu jujur, penyebab asli ada di log.
         return res.json({ success: false, message: 'Pembayaran QRIS sedang gangguan. Coba lagi sebentar, atau hubungi admin.' });
@@ -1637,6 +1667,7 @@ app.post('/reseller/join', requireAuth, async (req, res) => {
       customerName: user.username, wa: user.wa,
       price, totalPayment: price, qrString, isStatic,
       paymentGateway: isStatic ? null : qrisMode,
+      gatewayRef,
       status: 'pending', key: null,
       createdAt: new Date().toISOString(), time: formatDate()
     });
@@ -1678,7 +1709,7 @@ app.post('/wallet/topup', requireAuth, async (req, res) => {
     const orderCode = generateOrderCode();
     const qrisMode = settings.qrisMode || 'static';
 
-    let qrString = null, isStatic = false, totalPayment = amount, expiredAt = null, fallbackReason = null;
+    let qrString = null, isStatic = false, gatewayRef = null, totalPayment = amount, expiredAt = null, fallbackReason = null;
 
     if (qrisMode === 'static') {
       if (!settings.qrisStaticImage) return res.json({ success: false, message: 'Admin belum mengatur QRIS. Hubungi admin.' });
@@ -1687,6 +1718,7 @@ app.post('/wallet/topup', requireAuth, async (req, res) => {
       try {
         const r = await createQRISPayment(orderId, amount, settings);
         qrString = r.qr_string;
+        gatewayRef = r.gateway_ref || null;
         // total_payment dari GensPay = amount + fee mereka (kalau ada). Ini
         // CUMA buat ditampilkan ke user biar nominal yang ditampilkan sama
         // persis dengan yang diminta di QR code-nya. Saldo yang dikreditkan
@@ -1718,6 +1750,7 @@ app.post('/wallet/topup', requireAuth, async (req, res) => {
       customerName: user.username, wa: user.wa,
       price: amount, totalPayment, expiredAt, qrString, isStatic,
       paymentGateway: isStatic ? null : qrisMode,
+      gatewayRef,
       fallbackReason,
       status: 'pending', key: null,
       createdAt: new Date().toISOString(), time: formatDate()
@@ -2524,7 +2557,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
     const refId = uuidv4();
     const orderCode = generateOrderCode();
 
-    let qrString = null, isStatic = false, totalPayment = price, expiredAt = null, fallbackReason = null;
+    let qrString = null, isStatic = false, gatewayRef = null, totalPayment = price, expiredAt = null, fallbackReason = null;
 
     if (qrisMode === 'static') {
       if (!settings.qrisStaticImage) return res.json({ success: false, message: 'Upload gambar QRIS di admin panel terlebih dahulu.' });
@@ -2533,6 +2566,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
       try {
         const r = await createQRISPayment(orderId, price, settings);
         qrString = r.qr_string;
+        gatewayRef = r.gateway_ref || null;
         totalPayment = r.total_payment || price;
         expiredAt = r.expired_at || null;
       } catch (error) {
@@ -2569,6 +2603,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
       price, totalPayment,
       customerName, wa, qrString, isStatic,
       paymentGateway: isStatic ? null : qrisMode,
+      gatewayRef,
       fallbackReason,
       status: 'pending', key: null,
       createdAt: new Date().toISOString(), time: formatDate()
@@ -2985,87 +3020,65 @@ app.post('/webhook/stenly', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// WEBHOOK AUTOGOPAY — dipanggil server-to-server oleh AutoGopay saat status
-// invoice berubah jadi success / failed / expired.
-// Signature = HMAC-SHA256(Webhook Secret, payload JSON TANPA field `signature`)
-// (dikirim di body field `signature`). Dokumentasi AutoGopay sendiri
-// mengingatkan: hasil hash bergantung pada cara serialisasi JSON mereka
-// (contoh resminya PHP json_encode, yang meng-escape "/" jadi "\/" dan
-// karakter non-ASCII jadi \uXXXX — beda dari JSON.stringify Node). Karena
-// itu signature dicocokkan ke beberapa bentuk serialisasi yang WAJAR dari
-// payload yang sama; semuanya tetap butuh Webhook Secret, jadi tidak
-// melemahkan keamanan. Retry/timeout webhook belum terdokumentasi — makanya
-// /check-payment (polling status ke API) tetap jadi jaminan cadangan.
+// WEBHOOK AUTOGOPAY — dipanggil server-to-server oleh AutoGopay saat pembayaran masuk.
+// Header: X-Signature = HMAC-SHA256(RAW body, API Key) hex. X-Callback-Event: transaction.received
+// Payload: { event, timestamp, transaction:{ transaction_id, order_id, amount, status:'PAID', payment_method, paid_at } }
+// transaction_id / order_id = milik AutoGopay → dicocokkan ke transaksi lokal lewat `gatewayRef`.
+// Wajib balas HTTP 200 < 10 detik. Polling /check-payment tetap jadi cadangan.
 // ══════════════════════════════════════════════════════════════════
-function autogopaySignatureCandidates(rawBody, parsed) {
-  const out = [];
-  const { signature, ...rest } = parsed;
-  const compact = JSON.stringify(rest);
-  out.push(compact);
-  // Gaya PHP json_encode default: "/" → "\/", non-ASCII → \uXXXX (huruf kecil)
-  out.push(compact.replace(/\//g, '\\/').replace(/[\u0080-\uffff]/g, ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0')));
-  // Raw body persis, hanya field signature dibuang (urutan/format asli terjaga)
-  const sigField = /,\s*"signature"\s*:\s*"[^"]*"/;
-  const sigFirst = /"signature"\s*:\s*"[^"]*"\s*,\s*/;
-  if (sigField.test(rawBody)) out.push(rawBody.replace(sigField, ''));
-  else if (sigFirst.test(rawBody)) out.push(rawBody.replace(sigFirst, ''));
-  return out;
-}
-
 app.post('/webhook/autogopay', async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
-    const webhookSecret = String(settings.autogopay?.webhookSecret || process.env.AUTOGOPAY_WEBHOOK_SECRET || '').trim();
-    const body = req.body;
-    const signature = body && typeof body.signature === 'string' ? body.signature.trim().toLowerCase() : '';
-    if (!webhookSecret || !signature) { logWebhook('autogopay', { result: 'no_secret_or_signature' }); return res.status(401).send('Unauthorized'); }
-    if (!req.rawBody) { logWebhook('autogopay', { result: 'no_raw_body' }); return res.status(401).send('Unauthorized'); }
+    const { apiKey } = getAutogopayCreds(settings);
+    const signature = String(req.get('X-Signature') || '').trim().toLowerCase();
+    if (!apiKey || !signature) { await logWebhook('autogopay', { result: 'no_secret_or_signature' }); return res.status(401).send('Unauthorized'); }
+    if (!req.rawBody) { await logWebhook('autogopay', { result: 'no_raw_body' }); return res.status(401).send('Unauthorized'); }
 
-    const sigA = Buffer.from(signature);
-    const valid = autogopaySignatureCandidates(req.rawBody, body).some(payload => {
-      const sigB = Buffer.from(crypto.createHmac('sha256', webhookSecret).update(payload).digest('hex'));
-      return sigA.length === sigB.length && crypto.timingSafeEqual(sigA, sigB);
-    });
-    if (!valid) {
-      logWebhook('autogopay', { result: 'invalid_signature', orderId: body?.reference || null });
+    const expected = crypto.createHmac('sha256', apiKey).update(req.rawBody).digest('hex');
+    const sigA = Buffer.from(signature), sigB = Buffer.from(expected);
+    if (sigA.length !== sigB.length || !crypto.timingSafeEqual(sigA, sigB)) {
+      await logWebhook('autogopay', { result: 'invalid_signature' });
       return res.status(401).send('Invalid signature');
     }
 
-    const order_id = body.reference;
-    if (!order_id || typeof order_id !== 'string') { logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).send('OK'); }
+    const body = req.body || {};
+    const trx = body.transaction || {};
+    const gwTrxId = trx.transaction_id ? String(trx.transaction_id) : null;
+    const gwOrderId = trx.order_id ? String(trx.order_id) : null;
+    if (!gwTrxId && !gwOrderId) { await logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).send('OK'); }
 
     const transactions = await readFresh('transactions.json');
-    const transaction = transactions.find(t => t.orderId === order_id);
-    if (!transaction) { logWebhook('autogopay', { result: 'transaction_not_found', orderId: order_id }); return res.status(200).send('OK'); }
+    const transaction = transactions.find(t =>
+      (gwTrxId && t.gatewayRef?.transactionId === gwTrxId) ||
+      (gwOrderId && t.gatewayRef?.orderId === gwOrderId));
+    const logId = gwOrderId || gwTrxId;
+    if (!transaction) { await logWebhook('autogopay', { result: 'transaction_not_found', orderId: logId }); return res.status(200).send('OK'); }
 
-    if (transaction.status === 'done') { logWebhook('autogopay', { result: 'already_done', orderId: order_id }); return res.status(200).send('OK'); }
-    if (transaction.isStatic) { logWebhook('autogopay', { result: 'is_static', orderId: order_id }); return res.status(200).send('OK'); }
-    // Transaksi yang dibuat lewat gateway lain tidak boleh diselesaikan oleh
-    // webhook AutoGopay (transaksi lama tanpa paymentGateway tetap lolos).
+    if (transaction.status === 'done') { await logWebhook('autogopay', { result: 'already_done', orderId: transaction.orderId }); return res.status(200).send('OK'); }
+    if (transaction.isStatic) { await logWebhook('autogopay', { result: 'is_static', orderId: transaction.orderId }); return res.status(200).send('OK'); }
     if (transaction.paymentGateway && transaction.paymentGateway !== 'autogopay') {
-      logWebhook('autogopay', { result: 'gateway_mismatch', orderId: order_id, txGateway: transaction.paymentGateway });
+      await logWebhook('autogopay', { result: 'gateway_mismatch', orderId: transaction.orderId, txGateway: transaction.paymentGateway });
       return res.status(200).send('OK');
     }
 
-    const status = String(body.status || '').toLowerCase();
-    if (status === 'success') {
-      // Validasi nominal (rekomendasi dokumentasi AutoGopay): harus sama dengan
-      // nominal yang kita minta, atau total yang dikembalikan saat create.
-      const paidAmount = Number(body.amount);
-      if (body.amount !== undefined && body.amount !== null &&
+    const status = String(trx.status || '').toLowerCase();
+    if (['paid', 'success', 'settlement'].includes(status)) {
+      // Validasi nominal: harus sama dengan nominal yang diminta / total saat create.
+      const paidAmount = Number(trx.amount);
+      if (trx.amount !== undefined && trx.amount !== null &&
           paidAmount !== Number(transaction.price) && paidAmount !== Number(transaction.totalPayment)) {
-        logWebhook('autogopay', { result: 'amount_mismatch', orderId: order_id, webhookAmount: body.amount, price: transaction.price, totalPayment: transaction.totalPayment });
-        console.error(`[webhook-autogopay] amount tidak cocok untuk ${order_id}: webhook=${body.amount} price=${transaction.price} total=${transaction.totalPayment} — TIDAK di-finalize, cek manual`);
+        await logWebhook('autogopay', { result: 'amount_mismatch', orderId: transaction.orderId, webhookAmount: trx.amount, price: transaction.price, totalPayment: transaction.totalPayment });
+        console.error(`[webhook-autogopay] amount tidak cocok untuk ${transaction.orderId}: webhook=${trx.amount} price=${transaction.price} total=${transaction.totalPayment} — TIDAK di-finalize, cek manual`);
         return res.status(200).send('OK');
       }
       await finalizeConfirmedPayment(transaction.id);
-      logWebhook('autogopay', { result: 'finalized', orderId: order_id });
-    } else if (status === 'failed' || status === 'expired') {
+      await logWebhook('autogopay', { result: 'finalized', orderId: transaction.orderId });
+    } else if (['expire', 'expired', 'cancel', 'cancelled', 'failed'].includes(status)) {
       transaction.status = 'expired';
       await writeDB('transactions.json', transactions);
-      logWebhook('autogopay', { result: 'not_paid', orderId: order_id, statusFromWebhook: status });
+      await logWebhook('autogopay', { result: 'not_paid', orderId: transaction.orderId, statusFromWebhook: status });
     } else {
-      logWebhook('autogopay', { result: 'status_not_handled', orderId: order_id, statusFromWebhook: status || '(kosong)' });
+      await logWebhook('autogopay', { result: 'status_not_handled', orderId: transaction.orderId, statusFromWebhook: status || '(kosong)' });
     }
     res.status(200).send('OK');
   } catch (error) {
@@ -3144,7 +3157,7 @@ app.get('/check-payment/:refId', requireAuth, async (req, res) => {
 
     let paid = false;
     try {
-      const r = await checkPaymentStatus(transaction.orderId, transaction.price, settings, gateway);
+      const r = await checkPaymentStatus(transaction.orderId, transaction.price, settings, gateway, transaction);
       // Normalize status dari berbagai kemungkinan bentuk response Pakasir
       const status = (r.transaction?.status || r.data?.status || r.status || '').toLowerCase();
       paid = ['completed','success','paid','settlement','capture','complete','authorize','accepted'].includes(status);
@@ -3311,7 +3324,7 @@ app.get('/debug/payment-health', async (req, res) => {
       const gateway = tx?.paymentGateway || settings.qrisMode || 'genspay';
       const orderIdToQuery = tx ? tx.orderId : req.query.orderId;
       const amount = tx ? tx.price : parseInt(req.query.amount || '0');
-      const r = await checkPaymentStatus(orderIdToQuery, amount, settings, gateway);
+      const r = await checkPaymentStatus(orderIdToQuery, amount, settings, gateway, tx);
       const parsedStatus = (r.transaction?.status || r.data?.status || r.status || '').toLowerCase();
       const wouldBeMarkedPaid = ['completed','success','paid','settlement','capture','complete','authorize','accepted'].includes(parsedStatus);
       report.orderSpecificCheck = {
@@ -3975,7 +3988,7 @@ app.post('/admin/settings/genspay', requireAdmin, async (req, res) => {
 app.post('/admin/settings/stenly', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
-    const { apiKey, webhookSecret, baseUrl, qrisMode } = req.body;
+    const { apiKey, baseUrl, qrisMode } = req.body;
 
     settings.stenly = {
       apiKey: apiKey !== undefined ? apiKey : (settings.stenly?.apiKey || ''),
@@ -4001,7 +4014,7 @@ const VALID_QRIS_MODES = ['static', 'pakasir', 'genspay', 'stenly', 'autogopay']
 app.post('/admin/settings/autogopay', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
-    const { apiKey, webhookSecret, baseUrl, qrisMode } = req.body;
+    const { apiKey, baseUrl, qrisMode } = req.body;
 
     if (qrisMode !== undefined && !VALID_QRIS_MODES.includes(qrisMode)) {
       return res.json({ success: false, message: 'Mode pembayaran tidak valid' });
@@ -4011,8 +4024,7 @@ app.post('/admin/settings/autogopay', requireAdmin, async (req, res) => {
     const clean = (v, fallback) => (typeof v === 'string' ? v.trim() : fallback);
     settings.autogopay = {
       apiKey: clean(apiKey, cur.apiKey || ''),
-      webhookSecret: clean(webhookSecret, cur.webhookSecret || ''),
-      baseUrl: clean(baseUrl, cur.baseUrl || AUTOGOPAY_DEFAULT_BASE_URL) || AUTOGOPAY_DEFAULT_BASE_URL
+      baseUrl: normalizeAutogopayBaseUrl(clean(baseUrl, cur.baseUrl || AUTOGOPAY_DEFAULT_BASE_URL) || AUTOGOPAY_DEFAULT_BASE_URL)
     };
 
     if (qrisMode) {

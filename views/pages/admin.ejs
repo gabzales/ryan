@@ -1204,9 +1204,9 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                 <div class="font-bold flex items-center gap-1.5">
                     <iconify-icon icon="mdi:book-open-variant"></iconify-icon> Dokumentasi Integrasi
                 </div>
-                <div>Base URL: <span class="font-mono">https://autogopay.net</span> (tanpa /api/v1)</div>
-                <div>QRIS dinamis lewat akun GoPay Merchant. Autentikasi pakai header <span class="font-mono">X-API-Key</span> (iak_...).</div>
-                <div class="pt-1 text-zinc-400">API Key dan Webhook Secret itu DUA kredensial terpisah — jangan tertukar, keduanya ada di dashboard AutoGopay.</div>
+                <div>Base URL: <span class="font-mono">https://v1-gateway.autogopay.site</span> (domain saja)</div>
+                <div>QRIS dinamis lewat akun GoPay Merchant. Autentikasi pakai header <span class="font-mono">Authorization: Bearer</span> (agp_...).</div>
+                <div class="pt-1 text-zinc-400">API Key juga dipakai sebagai secret verifikasi webhook (HMAC-SHA256) — tidak ada Webhook Secret terpisah.</div>
             </div>
             <div class="p-3 rounded-xl bg-red-500/8 border border-red-500/20 text-[11px] text-red-400 mb-2">
                 <iconify-icon icon="mdi:alert"></iconify-icon> Isi API Key dulu, klik Test Koneksi, baru simpan. Mode AutoGopay tidak bisa diaktifkan kalau API Key masih kosong.
@@ -1214,21 +1214,17 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             <form id="autogopayForm" class="space-y-3" autocomplete="off">
                 <div>
                     <div class="setting-row-label">API Key</div>
-                    <input type="text" name="apiKey" autocomplete="off" value="<%= settings.autogopay?.apiKey||'' %>" class="hm-input font-mono text-xs" placeholder="iak_xxxxxx">
-                </div>
-                <div>
-                    <div class="setting-row-label">Webhook Secret Key</div>
-                    <input type="text" name="webhookSecret" autocomplete="off" value="<%= settings.autogopay?.webhookSecret||'' %>" class="hm-input font-mono text-xs" placeholder="webhook secret dari dashboard AutoGopay">
+                    <input type="text" name="apiKey" autocomplete="off" value="<%= settings.autogopay?.apiKey||'' %>" class="hm-input font-mono text-xs" placeholder="agp_xxxxxx">
                 </div>
                 <div>
                     <div class="setting-row-label">Base URL API</div>
-                    <input type="text" name="baseUrl" autocomplete="off" value="<%= settings.autogopay?.baseUrl||'https://autogopay.net' %>" class="hm-input font-mono text-xs" placeholder="https://autogopay.net">
+                    <input type="text" name="baseUrl" autocomplete="off" value="<%= settings.autogopay?.baseUrl||'https://v1-gateway.autogopay.site' %>" class="hm-input font-mono text-xs" placeholder="https://v1-gateway.autogopay.site">
                 </div>
                 <div class="p-3 rounded-xl bg-amber-500/8 border border-amber-500/20 text-[11px] text-amber-300 space-y-2">
                     <div class="font-bold flex items-center gap-1.5">
-                        <iconify-icon icon="mdi:link-variant"></iconify-icon> Webhook URL — isi di dashboard AutoGopay
+                        <iconify-icon icon="mdi:link-variant"></iconify-icon> Callback/Webhook URL — isi di dashboard AutoGopay
                     </div>
-                    <div class="text-zinc-400">Supaya pembayaran terkonfirmasi otomatis walau pembeli menutup halaman. Copy URL ini ke pengaturan webhook AutoGopay kamu, lalu isi Webhook Secret di atas dengan secret yang sama. (Cadangan: status juga dicek otomatis lewat API selama pembeli masih membuka halaman bayar.)</div>
+                    <div class="text-zinc-400">Supaya pembayaran terkonfirmasi otomatis walau pembeli menutup halaman. Copy URL ini ke kolom Callback URL di dashboard AutoGopay (signature diverifikasi pakai API Key di atas). (Cadangan: status juga dicek otomatis lewat API selama pembeli masih membuka halaman bayar.)</div>
                     <div class="flex items-center gap-2">
                         <input type="text" id="autogopayWebhookUrl" readonly class="hm-input font-mono text-[11px] flex-1" value="">
                         <button type="button" onclick="copyAutogopayWebhook()" class="px-3 py-2 rounded-lg text-xs font-bold text-purple-300 border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 transition-all whitespace-nowrap">
