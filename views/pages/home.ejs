@@ -148,10 +148,10 @@ const pageTitle = 'Beranda';
 </div>
 <% } %>
 
-<!-- ══ SEMUA PRODUK — 2 KOLOM BESAR DI MOBILE ══ -->
+<!-- ══ SEMUA PRODUK — 3 KOLOM DI MOBILE ══ -->
 <div style="padding:16px;max-width:1200px;margin:0 auto;padding-bottom:40px;">
 
-  <div id="product-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+  <div id="product-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
 
     <% products.forEach((product, pIdx) => {
       // stockMode 'ghostseller' (auto restock beneran) dianggap unlimited.
@@ -180,58 +180,45 @@ const pageTitle = 'Beranda';
       const opStatusLbl = opStatus === 'offline' ? 'Offline' : (opStatus === 'unknown' ? 'Unknown' : 'Online');
     %>
 
+    <%
+      // Kartu ringkas 3 kolom (referensi: gambar kotak, pill status, nama, sub-judul, terjual)
+      const pillOffline = opStatus === 'offline';
+      const pillTxt = pillOffline ? 'OFFLINE' : (isOut ? 'STOK HABIS' : 'TERSEDIA');
+      const pillClr = (pillOffline || isOut) ? '#f87171' : '#4ade80';
+      const pillBg  = (pillOffline || isOut) ? 'rgba(248,113,113,.12)' : 'rgba(34,197,94,.12)';
+      const pillBdr = (pillOffline || isOut) ? 'rgba(248,113,113,.35)' : 'rgba(34,197,94,.35)';
+      const subLabel = (hasAndroid && hasIos) ? 'ANDROID+iOS' : platLabel;
+    %>
     <div class="pcard" data-category="<%= product.category %>"
          onclick="location.href='/buy/<%= product.id %>'"
-         style="border-radius:14px;overflow:hidden;background:#160b21;border:1px solid rgba(124,47,214,.16);cursor:pointer;transition:border-color .22s,transform .18s,box-shadow .22s;">
+         style="border-radius:14px;overflow:hidden;background:#160b21;border:1px solid rgba(124,47,214,.16);cursor:pointer;transition:border-color .22s,transform .18s,box-shadow .22s;padding:6px 6px 9px;<%= isOut ? 'opacity:.7;' : '' %>">
 
-      <!-- Gambar — box-art penuh, rasio konsisten -->
-      <div style="position:relative;aspect-ratio:1/1;overflow:hidden;background:#0c0714;">
+      <!-- Gambar kotak, sudut membulat -->
+      <div style="position:relative;aspect-ratio:1/1;overflow:hidden;background:#0c0714;border-radius:10px;">
         <% if (product.image) { %>
         <img src="<%= product.image %>" alt="<%= product.name %>"
              style="width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s;"
              loading="lazy"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <div style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(124,47,214,.06);">
-          <iconify-icon icon="solar:gamepad-bold" style="font-size:32px;color:rgba(124,47,214,.35);"></iconify-icon>
+          <iconify-icon icon="solar:gamepad-bold" style="font-size:26px;color:rgba(124,47,214,.35);"></iconify-icon>
         </div>
         <% } else { %>
         <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(124,47,214,.06);">
-          <iconify-icon icon="solar:gamepad-bold" style="font-size:32px;color:rgba(124,47,214,.3);"></iconify-icon>
+          <iconify-icon icon="solar:gamepad-bold" style="font-size:26px;color:rgba(124,47,214,.3);"></iconify-icon>
         </div>
         <% } %>
-
-        <!-- gradient bawah, gelap solid ke arah info -->
-        <div style="position:absolute;inset:0;background:linear-gradient(to top,#160b21 0%,rgba(10,16,48,.15) 38%,transparent 62%);pointer-events:none;"></div>
-
-        <!-- Platform kanan atas — pill kaca -->
-        <% if (platLabel) { %>
-        <span style="position:absolute;top:8px;right:8px;z-index:10;font-size:8px;font-weight:800;padding:3px 7px;border-radius:20px;background:rgba(6,10,32,.65);backdrop-filter:blur(4px);color:<%= platClr %>;border:1px solid <%= platBdr %>;letter-spacing:.03em;"><%= platLabel %></span>
-        <% } %>
-
-        <!-- Status operasional kiri atas — titik kelap-kelip + label -->
-        <span style="position:absolute;top:8px;left:8px;z-index:10;display:flex;align-items:center;gap:4px;font-size:8px;font-weight:800;padding:3px 7px 3px 6px;border-radius:20px;background:rgba(6,10,32,.65);backdrop-filter:blur(4px);color:<%= opStatusClr %>;border:1px solid <%= opStatusClr %>55;letter-spacing:.03em;">
-          <span class="op-status-dot" style="width:5px;height:5px;border-radius:50%;background:<%= opStatusClr %>;box-shadow:0 0 4px <%= opStatusClr %>;flex-shrink:0;"></span><%= opStatusLbl %>
-        </span>
-
-        <!-- Nama produk overlay di atas gambar, bawah -->
-        <div style="position:absolute;left:9px;right:9px;bottom:8px;z-index:10;font-weight:800;font-size:12px;color:#fff;line-height:1.28;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-shadow:0 2px 6px rgba(0,0,0,.6);"><%= product.name %></div>
       </div>
 
       <!-- Info -->
-      <div style="padding:9px 10px 10px;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
-          <span style="font-size:12px;font-weight:900;color:#c084fc;">Rp <%= minPrice.toLocaleString('id-ID') %></span>
-          <span style="font-size:9px;color:rgba(148,163,184,.45);">Terjual <strong style="color:rgba(148,163,184,.7);"><%= soldLabel %></strong></span>
+      <div style="padding:7px 3px 0;">
+        <span style="display:inline-block;font-size:8px;font-weight:800;padding:2px 7px;border-radius:20px;letter-spacing:.03em;color:<%= pillClr %>;background:<%= pillBg %>;border:1px solid <%= pillBdr %>;"><%= pillTxt %></span>
+        <div style="margin-top:5px;font-weight:800;font-size:11px;color:#fff;line-height:1.25;min-height:27px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><%= product.name %></div>
+        <div style="margin-top:2px;font-size:9px;color:rgba(148,163,184,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:11px;"><%= subLabel %></div>
+        <div style="margin-top:4px;font-size:11px;font-weight:900;color:#c084fc;">Rp <%= minPrice.toLocaleString('id-ID') %></div>
+        <div style="margin-top:3px;display:flex;align-items:center;gap:3px;font-size:9px;color:rgba(148,163,184,.55);">
+          <iconify-icon icon="mdi:cart-outline" style="font-size:11px;"></iconify-icon><%= soldLabel %> Terjual
         </div>
-        <% if (!isOut) { %>
-        <button style="width:100%;padding:8px 0;border-radius:8px;font-size:11px;font-weight:900;color:#fff;background:linear-gradient(135deg,#57169e,#c084fc);border:none;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;">
-          <iconify-icon icon="mdi:shopping" style="font-size:12px;"></iconify-icon> Beli
-        </button>
-        <% } else { %>
-        <button disabled style="width:100%;padding:8px 0;border-radius:8px;font-size:11px;font-weight:700;color:rgba(255,255,255,.25);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;gap:5px;cursor:not-allowed;">
-          <iconify-icon icon="mdi:close-circle-outline" style="font-size:12px;"></iconify-icon> Habis
-        </button>
-        <% } %>
       </div>
     </div>
 
@@ -482,18 +469,18 @@ const pageTitle = 'Beranda';
 .c-dot.active{width:26px;border-radius:4px;background:linear-gradient(90deg,#c084fc,#6366f1,#c084fc);background-size:200% 100%;animation:dotShimmer 1.6s linear infinite;box-shadow:0 0 10px rgba(124,47,214,.6);}
 @keyframes dotShimmer{0%{background-position:0% 50%}100%{background-position:200% 50%}}
 
-/* Product grid: 3 col sm, 4 col lg, 5 col xl */
+/* Product grid: 3 col mobile, 4 col sm, 5 col lg, 6 col xl */
 /* nav-btn-desktop: hide on mobile, show on sm+ */
 .nav-btn-desktop{display:none;}
 @media(min-width:640px){
-  #product-grid{grid-template-columns:repeat(3,1fr);gap:14px;}
+  #product-grid{grid-template-columns:repeat(4,1fr)!important;gap:14px!important;}
   .nav-btn-desktop{display:inline-flex!important;}
 }
 @media(min-width:1024px){
-  #product-grid{grid-template-columns:repeat(4,1fr);}
+  #product-grid{grid-template-columns:repeat(5,1fr)!important;}
 }
 @media(min-width:1280px){
-  #product-grid{grid-template-columns:repeat(5,1fr);}
+  #product-grid{grid-template-columns:repeat(6,1fr)!important;}
 }
 
 /* Card hover — angkat, terangkan border, glow biru, zoom foto */
