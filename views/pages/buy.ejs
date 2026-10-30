@@ -783,6 +783,15 @@ const pageTitle = 'Beli ' + product.name;
                 }, (Date.now() - payStart) < 180000 ? 6000 : 15000);
             };
             payTick();
+            // Pembeli biasanya pindah ke aplikasi e-wallet buat bayar lalu balik: begitu tab
+            // kelihatan lagi, langsung cek status (jangan nunggu tick berikutnya).
+            if (!window._payVisBound) {
+                window._payVisBound = true;
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && !payStopped && window._payRefId) checkPay(window._payRefId);
+                });
+            }
+            window._payRefId = refId;
         }
     }
 

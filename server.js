@@ -3119,9 +3119,28 @@ app.post('/webhook/autogopay', async (req, res) => {
       await logWebhook('autogopay', { result: 'no_secret_or_signature' });
       return res.status(401).send('Unauthorized');
     }
+    // Signature tidak cocok (mis. serialisasi JSON mereka beda dari yang kita duga) TIDAK
+    // boleh bikin pembayaran nyangkut. Webhook tetap diterima kalau pembayarannya terbukti
+    // lunas lewat API AutoGopay (diautentikasi API Key kita) — payload webhook tidak dipercaya.
     if (!signatureOk) {
-      await logWebhook('autogopay', { result: 'invalid_signature', variant, orderId: body?.reference || body?.transaction?.order_id || null });
-      return res.status(401).send('Invalid signature');
+      let apiVerified = false;
+      try {
+        const txs = await readFresh('transactions.json');
+        const cand = variant === 'net'
+          ? txs.find(t => t.orderId === body.reference)
+          : txs.find(t => t.gatewayRef?.transactionId && t.gatewayRef.transactionId === String(body.transaction?.transaction_id || ''));
+        if (cand && !cand.isStatic && cand.status !== 'done' && (!cand.paymentGateway || cand.paymentGateway === 'autogopay')) {
+          const chk = await checkPaymentStatusAutogopay(cand.orderId, cand.price, settings, cand);
+          apiVerified = ['success', 'settlement', 'paid'].includes(chk.status);
+        }
+      } catch (e) {
+        console.error('[webhook-autogopay] verifikasi API gagal:', e.message);
+      }
+      if (!apiVerified) {
+        await logWebhook('autogopay', { result: 'invalid_signature', variant, orderId: body?.reference || body?.transaction?.order_id || null, hasWebhookSecret: !!webhookSecret, bodyPreview: String(req.rawBody).slice(0, 300) });
+        return res.status(401).send('Invalid signature');
+      }
+      await logWebhook('autogopay', { result: 'signature_mismatch_but_api_verified', variant, orderId: body?.reference || body?.transaction?.order_id || null });
     }
 
     const transactions = await readFresh('transactions.json');
