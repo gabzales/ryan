@@ -177,8 +177,23 @@ const processingOrders = new Set();
 // dikenali, dll). Lihat via /debug/genspay?secret=...&webhookLog=1.
 const webhookLog = [];
 function logWebhook(gateway, entry) {
-  webhookLog.unshift({ gateway, time: new Date().toISOString(), ...entry });
+  const item = { gateway, time: new Date().toISOString(), ...entry };
+  webhookLog.unshift(item);
   if (webhookLog.length > 30) webhookLog.length = 30;
+  // Log webhook AutoGopay juga disimpan permanen (maks 60 terakhir) supaya panel admin bisa
+  // menampilkannya walau webhook mendarat di instance Vercel yang berbeda. Dikembalikan
+  // sebagai Promise supaya `await logWebhook(...)` menunggu tulisannya selesai.
+  if (gateway === 'autogopay') {
+    return (async () => {
+      try {
+        const cur = await readFresh('webhook_autogopay_log.json');
+        const list = Array.isArray(cur) ? cur : [];
+        list.unshift(item);
+        if (list.length > 60) list.length = 60;
+        await writeDB('webhook_autogopay_log.json', list);
+      } catch (e) { /* diagnosis best-effort */ }
+    })();
+  }
 }
 
 // Lock per-user untuk operasi wallet (beli pakai saldo). Tanpa ini, dua
@@ -3195,6 +3210,177 @@ app.post('/webhook/autogopay', async (req, res) => {
   } catch (error) {
     console.error('[webhook-autogopay] error:', error.message);
     res.status(200).send('OK');
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// DIAGNOSA & SINKRON AUTOGOPAY (panel admin → Transaksi)
+// Kode hasil diagnosa:
+//   AGP-OK   transaksi sudah selesai
+//   AGP-S01  QRIS statis (tidak pernah lewat AutoGopay — biasanya karena gagal bikin QR saat order)
+//   AGP-G01  transaksi dibuat lewat gateway lain
+//   AGP-C01  API Key AutoGopay kosong
+//   AGP-C02  varian autogopay.site tapi transaksi tidak punya gatewayRef (order lama / dibuat lewat varian lain)
+//   AGP-A01  API Key ditolak (401/403)
+//   AGP-N01  gagal menghubungi AutoGopay (jaringan/timeout)
+//   AGP-N02  AutoGopay: transaksi tidak ditemukan (404)
+//   AGP-N03  AutoGopay membalas error lain / format respons tak dikenali
+//   AGP-P01  AutoGopay bilang SUDAH LUNAS tapi lokal masih pending  → bisa diproses dari panel
+//   AGP-P02  sudah lunas di AutoGopay tapi NOMINAL beda dari pesanan → cek manual, proses paksa opsional
+//   AGP-X01  AutoGopay bilang expired/dibatalkan
+//   AGP-W02  masih pending di AutoGopay + ada webhook ditolak (signature) untuk order ini
+//   AGP-U01  masih pending di AutoGopay, belum lewat masa berlaku (belum dibayar / belum terdeteksi)
+//   AGP-U02  masih pending di AutoGopay padahal lewat masa berlaku → AutoGopay tidak mendeteksi pembayaran
+// ══════════════════════════════════════════════════════════════════
+function clipText(v, n) { const t = typeof v === 'string' ? v : JSON.stringify(v); return String(t || '').slice(0, n || 700); }
+
+async function autogopayRawStatus(creds, tx) {
+  if (creds.variant === 'site') {
+    const gwId = tx.gatewayRef?.transactionId;
+    if (!gwId) return null;
+    const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId });
+    return { r, request: `POST ${joinUrlPath(creds.baseUrl, '/qris/status')}  {"transaction_id":"${gwId}"}` };
+  }
+  const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/${encodeURIComponent(tx.orderId)}`);
+  return { r, request: `GET ${joinUrlPath(creds.baseUrl, '/api/v1/payment/status/' + encodeURIComponent(tx.orderId))}` };
+}
+
+function autogopayParseRaw(r) {
+  const j = r.json || {};
+  const d = j.data || j;
+  const raw = String(d.transaction_status || d.status || j.status || '').toLowerCase();
+  let status = 'unknown';
+  if (['success', 'settlement', 'paid'].includes(raw)) status = 'paid';
+  else if (['pending'].includes(raw)) status = 'pending';
+  else if (['expired', 'expire'].includes(raw)) status = 'expired';
+  else if (['failed', 'cancel', 'cancelled'].includes(raw)) status = 'cancelled';
+  const amount = Number(d.amount);
+  return { raw, status, amount: amount > 0 ? amount : null };
+}
+
+async function autogopayDiagnose(tx, settings, creds, host) {
+  const ageMin = Math.round((Date.now() - new Date(tx.createdAt || Date.now()).getTime()) / 60000);
+  const diag = {
+    tx: { id: tx.id, code: tx.code, orderId: tx.orderId, type: tx.type, status: tx.status, price: tx.price, totalPayment: tx.totalPayment, paymentGateway: tx.paymentGateway || null, isStatic: !!tx.isStatic, createdAt: tx.createdAt, ageMinutes: ageMin, expiredAt: tx.expiredAt || null, gatewayRef: tx.gatewayRef || null, fallbackReason: tx.fallbackReason || null },
+    config: { variant: creds.variant, baseUrl: creds.baseUrl, hasApiKey: !!creds.apiKey, hasWebhookSecret: !!String(settings.autogopay?.webhookSecret || process.env.AUTOGOPAY_WEBHOOK_SECRET || '').trim(), webhookUrl: `https://${host}/webhook/autogopay` },
+    api: null, parsed: null, webhook: [], verdict: null
+  };
+
+  // Log webhook untuk order ini (persisten + memori)
+  try {
+    const persisted = await readFresh('webhook_autogopay_log.json');
+    const all = [...(Array.isArray(persisted) ? persisted : []), ...webhookLog.filter(w => w.gateway === 'autogopay')];
+    const seen = new Set();
+    const gwIds = [tx.gatewayRef?.orderId, tx.gatewayRef?.transactionId].filter(Boolean);
+    diag.webhook = all.filter(w => {
+      const key = w.time + '|' + w.result;
+      if (seen.has(key)) return false; seen.add(key);
+      return w.orderId && (w.orderId === tx.orderId || gwIds.includes(w.orderId));
+    }).slice(0, 8);
+    diag.webhookRecentAll = all.filter(w => !seen.has('x')).slice(0, 5).map(w => ({ time: w.time, result: w.result, orderId: w.orderId || null }));
+    diag.webhookInvalidSigRecent = all.filter(w => w.result === 'invalid_signature' && Date.now() - new Date(w.time).getTime() < 24 * 3600 * 1000).length;
+  } catch (e) { /* abaikan */ }
+
+  const V = (code, title, detail, extra) => { diag.verdict = { code, title, detail, canFinalize: false, canForce: false, ...(extra || {}) }; return diag; };
+
+  if (tx.status === 'done') return V('AGP-OK', 'Transaksi sudah selesai', 'Tidak ada yang perlu diproses.');
+  if (tx.isStatic) return V('AGP-S01', 'QRIS statis — tidak lewat AutoGopay', `QR otomatis gagal dibuat saat order, jadi jatuh ke QRIS statis (konfirmasi manual). Penyebab: ${tx.fallbackReason || 'tidak tercatat'}. Setelah dicek di mutasi, pakai "Konfirmasi Bayar".`);
+  if (tx.paymentGateway && tx.paymentGateway !== 'autogopay') return V('AGP-G01', 'Dibuat lewat gateway lain', `Transaksi ini memakai gateway "${tx.paymentGateway}", bukan AutoGopay.`);
+  if (!creds.apiKey) return V('AGP-C01', 'API Key AutoGopay kosong', 'Isi API Key di Pengaturan → AutoGopay.');
+
+  let raw;
+  try { raw = await autogopayRawStatus(creds, tx); }
+  catch (e) { return V('AGP-N01', 'Gagal menghubungi AutoGopay', e.message + ' — cek koneksi server / Base URL (' + creds.baseUrl + ').'); }
+  if (!raw) return V('AGP-C02', 'transaction_id AutoGopay tidak tersimpan', 'Order ini dibuat sebelum update / lewat varian lain (tidak punya gatewayRef), jadi status tidak bisa ditanyakan ke API. Cek manual di dashboard AutoGopay lalu pakai "Konfirmasi Bayar" kalau sudah lunas.');
+
+  const { r } = raw;
+  diag.api = { request: raw.request, httpStatus: r.statusCode, body: clipText(r.json ?? r.raw) };
+  if (r.statusCode === 401 || r.statusCode === 403) return V('AGP-A01', 'API Key ditolak (' + r.statusCode + ')', clipText(r.json?.message || 'API Key tidak valid / akun tidak berlangganan.', 200));
+  if (r.statusCode === 404) return V('AGP-N02', 'AutoGopay: transaksi tidak ditemukan (404)', 'Order ini tidak tercatat di AutoGopay (' + (creds.variant === 'net' ? 'reference ' + tx.orderId : 'transaction_id') + '). Kemungkinan dibuat dengan akun/API Key lain atau Base URL berubah.');
+  if (!(r.statusCode >= 200 && r.statusCode < 300)) return V('AGP-N03', 'AutoGopay membalas HTTP ' + r.statusCode, clipText(r.json?.message || r.raw, 200));
+
+  const p = autogopayParseRaw(r);
+  diag.parsed = p;
+  if (p.status === 'unknown') return V('AGP-N03', 'Format status tidak dikenali', `Status mentah dari AutoGopay: "${p.raw || '(kosong)'}". Kirim isi "Respons API" ke developer.`);
+
+  if (p.status === 'paid') {
+    const mism = p.amount !== null && p.amount !== Number(tx.price) && p.amount !== Number(tx.totalPayment);
+    if (mism) return V('AGP-P02', 'Lunas di AutoGopay, tapi nominal beda', `Nominal terbayar Rp ${p.amount} vs pesanan Rp ${tx.price} (total ${tx.totalPayment}). Cek manual; kalau yakin benar, proses paksa.`, { canFinalize: false, canForce: true });
+    return V('AGP-P01', 'SUDAH LUNAS di AutoGopay, tapi lokal masih pending', `AutoGopay melaporkan status "${p.raw}". Webhook tidak/gagal memproses dan polling pembeli terlewat. Klik "Proses Sekarang" untuk menyelesaikan (kirim key / tambah saldo).`, { canFinalize: true });
+  }
+  if (p.status === 'expired' || p.status === 'cancelled') return V('AGP-X01', 'Expired / dibatalkan di AutoGopay', `Status AutoGopay: "${p.raw}". Pembayaran tidak masuk sebelum waktu habis. Kalau pembeli mengaku sudah bayar, minta bukti & cek mutasi GoPay Merchant, lalu "Konfirmasi Bayar" manual.`);
+
+  // pending di AutoGopay
+  const badSig = diag.webhook.find(w => w.result === 'invalid_signature');
+  if (badSig) return V('AGP-W02', 'Webhook masuk tapi signature ditolak', 'Webhook Secret di panel kemungkinan beda dengan yang di dashboard AutoGopay. (Versi ini sebenarnya tetap memproses bila API membuktikan lunas — di sini API masih bilang pending.)');
+  const expiredLocal = tx.expiredAt && Date.now() > new Date(tx.expiredAt).getTime();
+  if (expiredLocal || ageMin > 20) return V('AGP-U02', 'Lewat masa berlaku, AutoGopay masih "pending"', 'AutoGopay tidak mendeteksi pembayaran untuk QR ini. Penyebab umum: pembeli belum bayar, nominal yang dibayar tidak persis sama, atau sinkron akun GoPay Merchant di AutoGopay bermasalah/terlambat. Cek mutasi GoPay Merchant dan dashboard AutoGopay; kalau memang masuk, hubungi support AutoGopay.' + (diag.webhookInvalidSigRecent ? ` Catatan: ada ${diag.webhookInvalidSigRecent} webhook ditolak (signature) 24 jam terakhir.` : ''));
+  return V('AGP-U01', 'Masih menunggu pembayaran', `Baru ${ageMin} menit dan AutoGopay masih "pending" — belum dibayar atau belum terdeteksi.`);
+}
+
+app.post('/admin/transaction/autogopay-check/:id', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const transactions = await readFresh('transactions.json');
+    const tx = transactions.find(t => t.id === req.params.id);
+    if (!tx) return res.json({ success: false, message: 'Transaksi tidak ditemukan' });
+    const creds = getAutogopayCreds(settings);
+    const diag = await autogopayDiagnose(tx, settings, creds, req.get('host'));
+
+    const wantFinalize = req.body?.finalize === true;
+    const wantForce = req.body?.force === true;
+    if (wantFinalize && ((diag.verdict.code === 'AGP-P01') || (wantForce && diag.verdict.code === 'AGP-P02'))) {
+      if (tx.status === 'expired') { tx.status = 'pending'; await writeDB('transactions.json', transactions); }
+      const result = await finalizeConfirmedPayment(tx.id);
+      diag.finalize = { success: !!result?.success, status: result?.status || null, message: result?.message || null, outOfStock: !!result?.outOfStock, key: result?.key || null };
+      await logWebhook('autogopay', { result: 'admin_finalized', orderId: tx.orderId, by: 'admin-panel', code: diag.verdict.code });
+    }
+    res.json({ success: true, diag });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// Sinkron massal: cek semua transaksi AutoGopay yang masih pending (maks 30 terbaru) ke API,
+// proses yang ternyata sudah lunas, tandai yang expired.
+app.post('/admin/autogopay/sync', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const creds = getAutogopayCreds(settings);
+    if (!creds.apiKey) return res.json({ success: false, message: 'API Key AutoGopay belum diisi' });
+    const transactions = await readFresh('transactions.json');
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    const targets = transactions
+      .filter(t => (t.status === 'pending' || t.status === 'expired') && !t.isStatic && t.paymentGateway === 'autogopay' && new Date(t.createdAt || 0).getTime() > dayAgo)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 30);
+    const report = { checked: 0, finalized: [], expired: 0, stillPending: 0, errors: [] };
+    let dirty = false;
+    for (const t of targets) {
+      report.checked++;
+      try {
+        const raw = await autogopayRawStatus(creds, t);
+        if (!raw) { report.errors.push(`${t.code || t.orderId}: tidak ada gatewayRef`); continue; }
+        if (!(raw.r.statusCode >= 200 && raw.r.statusCode < 300)) { report.errors.push(`${t.code || t.orderId}: HTTP ${raw.r.statusCode}`); continue; }
+        const p = autogopayParseRaw(raw.r);
+        if (p.status === 'paid') {
+          if (p.amount !== null && p.amount !== Number(t.price) && p.amount !== Number(t.totalPayment)) { report.errors.push(`${t.code || t.orderId}: lunas tapi nominal beda (Rp ${p.amount})`); continue; }
+          if (t.status === 'expired') { t.status = 'pending'; await writeDB('transactions.json', transactions); }
+          const result = await finalizeConfirmedPayment(t.id);
+          if (result?.success) report.finalized.push(t.code || t.orderId); else report.errors.push(`${t.code || t.orderId}: ${result?.message || 'gagal diproses'}`);
+        } else if (p.status === 'expired' || p.status === 'cancelled') {
+          if (t.status === 'pending') { t.status = 'expired'; dirty = true; report.expired++; }
+        } else if (p.status === 'pending') {
+          report.stillPending++;
+        } else {
+          report.errors.push(`${t.code || t.orderId}: status tidak dikenali "${p.raw}"`);
+        }
+      } catch (e) { report.errors.push(`${t.code || t.orderId}: ${e.message}`); }
+    }
+    if (dirty) { const fresh = await readFresh('transactions.json'); for (const t of targets) { const f = fresh.find(x => x.id === t.id); if (f && f.status === 'pending' && t.status === 'expired') f.status = 'expired'; } await writeDB('transactions.json', fresh); }
+    res.json({ success: true, report });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
   }
 });
 

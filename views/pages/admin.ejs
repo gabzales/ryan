@@ -398,6 +398,11 @@ textarea.hm-input{resize:vertical;min-height:80px;}
 <div id="pane-transactions" class="tab-pane">
     <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <div class="section-label mb-0">Semua Transaksi (<%= transactions.length %>)</div>
+        <% if((settings.qrisMode||'static')==='autogopay' || (settings.autogopay && settings.autogopay.apiKey)){ %>
+        <button onclick="agpSyncAll()" id="agpSyncBtn" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-500/15 border border-purple-500/40 text-purple-300">
+            <iconify-icon icon="mdi:sync"></iconify-icon> Sinkron AutoGopay
+        </button>
+        <% } %>
         <div class="flex gap-2">
             <button onclick="filterTrx('all')" id="trxf-all" class="trx-filter px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-500/20 border border-indigo-500/40 text-purple-300">Semua</button>
             <button onclick="filterTrx('pending')" id="trxf-pending" class="trx-filter px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/3 border border-white/10 text-zinc-500">Pending</button>
@@ -490,10 +495,16 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                     <iconify-icon icon="<%= (t.outOfStock && !t.key) ? 'mdi:refresh' : 'mdi:check-circle' %>"></iconify-icon> <%= (t.outOfStock && !t.key) ? 'Coba Lagi' : 'Konfirmasi Bayar' %>
                 </button>
                 <% } %>
+                <% if(t.status !== 'done' && !t.isStatic && (t.paymentGateway==='autogopay' || (!t.paymentGateway && (settings.qrisMode||'static')==='autogopay'))){ %>
+                <button onclick="agpCheck('<%= t.id %>')" id="agp-btn-<%= t.id %>" class="py-1 px-3 text-[10px] rounded-lg font-bold bg-purple-500/15 border border-purple-500/40 text-purple-300">
+                    <iconify-icon icon="mdi:stethoscope"></iconify-icon> Cek AutoGopay
+                </button>
+                <% } %>
                 <button onclick="deleteTransaction('<%= t.id %>')" class="btn-danger py-1 px-3 text-[10px]">
                     <iconify-icon icon="mdi:trash-can"></iconify-icon>
                 </button>
             </div>
+            <div id="agp-diag-<%= t.id %>" class="hidden mt-2.5 p-2.5 rounded-lg text-[10px] leading-relaxed" style="background:rgba(0,0,0,.25);border:1px solid rgba(124,47,214,.25);"></div>
         </div>
         <% }) %>
         <% if(!transactions.length){ %>
@@ -2757,6 +2768,64 @@ function failLabelFromReason(reason) {
     if (/mapping|tidak ditemukan produk provider/i.test(reason)) return '❌ Gagal (Belum Dimapping)';
     if (/stok habis|tidak ada key tersedia/i.test(reason)) return '❌ Gagal (Stok Habis)';
     return '❌ Gagal (Perlu Dicek)';
+}
+
+// ── DIAGNOSA AUTOGOPAY ──
+function agpEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const AGP_CLR = { 'AGP-P01':'#4ade80', 'AGP-OK':'#4ade80', 'AGP-U01':'#facc15', 'AGP-P02':'#fb923c' };
+function agpRender(id, diag, extraHtml) {
+    const box = document.getElementById('agp-diag-' + id);
+    if (!box) return;
+    const v = diag.verdict || {}, c = diag.config || {}, tx = diag.tx || {};
+    const clr = AGP_CLR[v.code] || '#f87171';
+    let h = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="font-family:monospace;font-weight:800;padding:1px 6px;border-radius:5px;background:' + clr + '22;color:' + clr + ';border:1px solid ' + clr + '55;">' + agpEsc(v.code) + '</span><span style="font-weight:800;color:#fff;font-size:11px;">' + agpEsc(v.title) + '</span></div>';
+    h += '<div style="color:#cbd5e1;margin-bottom:6px;">' + agpEsc(v.detail) + '</div>';
+    if (extraHtml) h += extraHtml;
+    h += '<div style="color:#94a3b8;">Order: <span style="font-family:monospace;color:#e2e8f0;">' + agpEsc(tx.orderId) + '</span> · umur ' + agpEsc(tx.ageMinutes) + ' mnt · lokal: <b>' + agpEsc(tx.status) + '</b> · Rp ' + agpEsc(tx.price) + '</div>';
+    h += '<div style="color:#94a3b8;">Mode: <b>' + agpEsc(c.variant === 'net' ? 'autogopay.net' : 'autogopay.site') + '</b> · ' + agpEsc(c.baseUrl) + ' · API Key: ' + (c.hasApiKey ? 'ada' : '<b style="color:#f87171">KOSONG</b>') + ' · Webhook Secret: ' + (c.hasWebhookSecret ? 'ada' : '-') + '</div>';
+    h += '<div style="color:#94a3b8;">Callback URL yang harus ada di dashboard AutoGopay: <span style="font-family:monospace;color:#e2e8f0;word-break:break-all;">' + agpEsc(c.webhookUrl) + '</span></div>';
+    if (diag.api) h += '<details style="margin-top:4px;"><summary style="cursor:pointer;color:#c084fc;">Respons API (HTTP ' + agpEsc(diag.api.httpStatus) + ')</summary><div style="font-family:monospace;color:#94a3b8;word-break:break-all;">' + agpEsc(diag.api.request) + '</div><pre style="white-space:pre-wrap;word-break:break-all;color:#e2e8f0;margin:2px 0 0;">' + agpEsc(diag.api.body) + '</pre></details>';
+    const wh = diag.webhook || [];
+    h += '<details style="margin-top:4px;"><summary style="cursor:pointer;color:#c084fc;">Log webhook untuk order ini (' + wh.length + ')</summary>' + (wh.length ? wh.map(w => '<div style="font-family:monospace;color:#e2e8f0;">' + agpEsc(new Date(w.time).toLocaleString('id-ID')) + ' · ' + agpEsc(w.result) + '</div>').join('') : '<div style="color:#94a3b8;">Belum ada webhook masuk untuk order ini.' + ((diag.webhookRecentAll||[]).length ? '' : ' (Belum ada webhook AutoGopay masuk sama sekali sejak update ini — cek Callback URL di dashboard AutoGopay.)') + '</div>') + '</details>';
+    if (v.canFinalize || v.canForce) {
+        h += '<div style="margin-top:6px;"><button onclick="agpFinalize(\'' + id + '\',' + (v.canForce ? 'true' : 'false') + ')" class="btn-success py-1 px-3 text-[10px]"><iconify-icon icon="mdi:check-circle"></iconify-icon> ' + (v.canForce ? 'Proses Paksa' : 'Proses Sekarang') + '</button></div>';
+    }
+    box.innerHTML = h;
+    box.classList.remove('hidden');
+}
+async function agpCheck(id) {
+    const btn = document.getElementById('agp-btn-' + id);
+    const box = document.getElementById('agp-diag-' + id);
+    if (btn) btn.disabled = true;
+    if (box) { box.classList.remove('hidden'); box.textContent = 'Mengecek ke AutoGopay...'; }
+    const d = await api('/admin/transaction/autogopay-check/' + id, {});
+    if (btn) btn.disabled = false;
+    if (!d.success) { if (box) box.textContent = 'Gagal: ' + (d.message || 'error'); return; }
+    agpRender(id, d.diag);
+}
+async function agpFinalize(id, force) {
+    if (!confirm(force ? 'Nominal beda dari pesanan. Proses paksa transaksi ini?' : 'Proses transaksi ini sekarang (kirim key / tambah saldo)?')) return;
+    const d = await api('/admin/transaction/autogopay-check/' + id, { finalize: true, force: !!force });
+    if (!d.success) { toast(d.message || 'Gagal memproses', 'error'); return; }
+    const f = d.diag.finalize;
+    if (f && f.success) {
+        toast('Transaksi diproses' + (f.outOfStock ? ' (stok habis, key belum terkirim)' : ''), f.outOfStock ? 'error' : 'success');
+        const badge = document.getElementById('trx-status-badge-' + id);
+        if (badge && !f.outOfStock) { badge.className = 'badge badge-done'; badge.textContent = 'Done'; }
+    } else {
+        toast((f && f.message) || 'Gagal memproses transaksi', 'error');
+    }
+    agpRender(id, d.diag, f ? '<div style="color:' + (f.success ? '#4ade80' : '#f87171') + ';margin-bottom:6px;">Hasil proses: ' + agpEsc(f.success ? (f.status || 'ok') : (f.message || 'gagal')) + '</div>' : '');
+}
+async function agpSyncAll() {
+    const btn = document.getElementById('agpSyncBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Menyinkron...'; }
+    const d = await api('/admin/autogopay/sync', {});
+    if (btn) { btn.disabled = false; btn.innerHTML = '<iconify-icon icon="mdi:sync"></iconify-icon> Sinkron AutoGopay'; }
+    if (!d.success) { toast(d.message || 'Gagal sinkron', 'error'); return; }
+    const r = d.report;
+    alert('Sinkron AutoGopay selesai\n\nDicek: ' + r.checked + '\nDiproses (sudah lunas): ' + r.finalized.length + (r.finalized.length ? ' → ' + r.finalized.join(', ') : '') + '\nExpired: ' + r.expired + '\nMasih pending: ' + r.stillPending + (r.errors.length ? '\n\nCatatan:\n' + r.errors.join('\n') : ''));
+    if (r.finalized.length || r.expired) location.reload();
 }
 
 // ── KONFIRMASI TRANSAKSI ──
