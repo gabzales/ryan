@@ -461,6 +461,22 @@ const ensureOrderLocksTable = async () => {
 
 const isMissingTableError = (err) => !!err && (err.code === '42P01' || err.code === 'PGRST205' || /order_locks/i.test(err.message || '') && /(does not exist|schema cache|not find)/i.test(err.message || ''));
 
+let useKvLock = false;
+const kvLockKey = (id) => '__lock__' + id;
+const acquireKvLock = async (client, lockId) => {
+  const key = kvLockKey(lockId);
+  const { error } = await client.from('keyvalue_store').insert({ key, value: {}, updated_at: new Date().toISOString() });
+  if (!error) return true;
+  const { data: existing } = await client.from('keyvalue_store').select('updated_at').eq('key', key).maybeSingle();
+  if (existing && (Date.now() - new Date(existing.updated_at).getTime()) > LOCK_STALE_MS) {
+    // ambil alih lock basi; delete dikunci ke updated_at lama supaya 2 pengambil-alih tidak saling hapus
+    await client.from('keyvalue_store').delete().eq('key', key).eq('updated_at', existing.updated_at);
+    const { error: retryError } = await client.from('keyvalue_store').insert({ key, value: {}, updated_at: new Date().toISOString() });
+    return !retryError;
+  }
+  if (!existing) console.error('[supabase] acquireKvLock gagal:', error.code, error.message);
+  return false;
+};
 const LOCK_STALE_MS = 30000; // lock dianggap basi kalau proses pemegangnya crash sebelum sempat release
 
 const acquireLock = async (lockId) => {
@@ -470,18 +486,12 @@ const acquireLock = async (lockId) => {
     let { error } = await client.from('order_locks').insert({ ref_id: lockId });
     if (!error) return true;
 
-    // Tabel belum ada → coba buat otomatis sekali (kalau SUPABASE_DB_PASSWORD ada), lalu ulangi.
-    if (isMissingTableError(error) && !orderLocksEnsured) {
-      console.error('[supabase] acquireLock: tabel order_locks tidak ada/tidak terbaca →', error.message, '| mencoba membuatnya otomatis...');
-      try {
-        await ensureOrderLocksTable();
-        const retry = await client.from('order_locks').insert({ ref_id: lockId });
-        if (!retry.error) return true;
-        error = retry.error;
-      } catch (e) {
-        orderLocksEnsured = true; // jangan spam percobaan di tiap request
-        console.error('[supabase] gagal membuat order_locks otomatis:', e.message);
-      }
+    // Tabel order_locks tidak ada → pakai keyvalue_store (pasti ada) sebagai mutex.
+    // INSERT dengan primary key `key` sama atomiknya; tidak perlu DDL / password DB.
+    if (isMissingTableError(error)) {
+      if (!useKvLock) console.error('[supabase] tabel order_locks tidak ada → pindah ke lock via keyvalue_store:', error.message);
+      useKvLock = true;
+      return await acquireKvLock(client, lockId);
     }
     console.error('[supabase] acquireLock insert error:', error.code, error.message);
 
@@ -528,7 +538,10 @@ const acquireLockDebug = async (lockId) => {
 const releaseLock = async (lockId) => {
   const client = getClient();
   if (!client) return;
-  try { await client.from('order_locks').delete().eq('ref_id', lockId); } catch {}
+  try {
+    if (useKvLock) await client.from('keyvalue_store').delete().eq('key', kvLockKey(lockId));
+    else await client.from('order_locks').delete().eq('ref_id', lockId);
+  } catch {}
 };
 
 module.exports = { ensureOrderLocksTable, readDB, writeDB, initializeDB, getDbStatus, uploadImage, refreshFromDB, readFresh, readSmart, acquireLock, acquireLockDebug, releaseLock };
