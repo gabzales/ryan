@@ -3668,6 +3668,19 @@ app.get('/debug/payment-health', async (req, res) => {
 // pending selamanya, key tidak pernah otomatis terkirim".
 // Akses: /debug/order-locks?secret=SETUP_SECRET
 // ══════════════════════════════════════════════════════════════════
+// Buat tabel order_locks dari web (admin harus login). Buka: /admin/setup-order-locks
+app.get('/admin/setup-order-locks', requireAdmin, async (req, res) => {
+  try {
+    await db.ensureOrderLocksTable();
+    const t = 'setuptest_' + Date.now();
+    const r = await db.acquireLockDebug(t);
+    if (r.ok) await db.releaseLock(t);
+    res.json({ success: r.ok === true, message: r.ok ? 'Tabel order_locks siap. Klik "Sinkron" di panel admin untuk memproses transaksi yang masih pending.' : 'Tabel dibuat tapi masih gagal diakses', detail: r.detail || null });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
 app.get('/debug/order-locks', async (req, res) => {
   const secret = process.env.SETUP_SECRET;
   if (!secret || !safeSecretEq(req.headers['x-debug-secret'] || req.query.secret, secret)) {
@@ -5575,4 +5588,3 @@ app.use((err, req, res, next) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[UNHANDLED REJECTION]', reason);
 });
-
