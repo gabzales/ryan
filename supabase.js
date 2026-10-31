@@ -430,14 +430,60 @@ const refreshFromDB = async (filename) => { await readFresh(filename); };
 // dengan primary key = lockId itu ATOMIC di level Postgres, jadi 2 instance
 // yang insert bersamaan dijamin cuma 1 yang berhasil — beda dengan
 // read-then-write biasa yang rawan race.
+
+// Buat tabel order_locks lewat koneksi PostgreSQL langsung (supabase-js/PostgREST tidak bisa DDL).
+// Butuh env SUPABASE_DB_PASSWORD. Idempotent (IF NOT EXISTS).
+let orderLocksEnsured = false;
+const ensureOrderLocksTable = async () => {
+  const url = process.env.SUPABASE_URL || '';
+  const pw = process.env.SUPABASE_DB_PASSWORD;
+  if (!pw) throw new Error('SUPABASE_DB_PASSWORD belum di-set di env Vercel, jadi tabel tidak bisa dibuat dari web');
+  const ref = url.replace('https://', '').split('.')[0];
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    host: `db.${ref}.supabase.co`, port: 5432, database: 'postgres', user: 'postgres',
+    password: pw, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 10000
+  });
+  try {
+    await pool.query(`
+      create table if not exists public.order_locks (
+        ref_id text primary key,
+        created_at timestamptz not null default now()
+      );
+      alter table public.order_locks enable row level security;
+      notify pgrst, 'reload schema';
+    `);
+    orderLocksEnsured = true;
+  } finally {
+    await pool.end();
+  }
+};
+
+const isMissingTableError = (err) => !!err && (err.code === '42P01' || err.code === 'PGRST205' || /order_locks/i.test(err.message || '') && /(does not exist|schema cache|not find)/i.test(err.message || ''));
+
 const LOCK_STALE_MS = 30000; // lock dianggap basi kalau proses pemegangnya crash sebelum sempat release
 
 const acquireLock = async (lockId) => {
   const client = getClient();
   if (!client) return true; // tanpa Supabase (dev lokal), tidak ada cara jamin lock lintas proses — andalkan in-memory Set yang sudah ada di server.js
   try {
-    const { error } = await client.from('order_locks').insert({ ref_id: lockId });
+    let { error } = await client.from('order_locks').insert({ ref_id: lockId });
     if (!error) return true;
+
+    // Tabel belum ada → coba buat otomatis sekali (kalau SUPABASE_DB_PASSWORD ada), lalu ulangi.
+    if (isMissingTableError(error) && !orderLocksEnsured) {
+      console.error('[supabase] acquireLock: tabel order_locks tidak ada/tidak terbaca →', error.message, '| mencoba membuatnya otomatis...');
+      try {
+        await ensureOrderLocksTable();
+        const retry = await client.from('order_locks').insert({ ref_id: lockId });
+        if (!retry.error) return true;
+        error = retry.error;
+      } catch (e) {
+        orderLocksEnsured = true; // jangan spam percobaan di tiap request
+        console.error('[supabase] gagal membuat order_locks otomatis:', e.message);
+      }
+    }
+    console.error('[supabase] acquireLock insert error:', error.code, error.message);
 
     // Gagal insert → kemungkinan besar unique_violation (lock sudah dipegang
     // proses lain). Cek apakah lock itu basi (proses lain crash sebelum
@@ -485,4 +531,4 @@ const releaseLock = async (lockId) => {
   try { await client.from('order_locks').delete().eq('ref_id', lockId); } catch {}
 };
 
-module.exports = { readDB, writeDB, initializeDB, getDbStatus, uploadImage, refreshFromDB, readFresh, readSmart, acquireLock, acquireLockDebug, releaseLock };
+module.exports = { ensureOrderLocksTable, readDB, writeDB, initializeDB, getDbStatus, uploadImage, refreshFromDB, readFresh, readSmart, acquireLock, acquireLockDebug, releaseLock };
