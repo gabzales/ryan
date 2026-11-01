@@ -9,6 +9,9 @@ const https = require('https');
 const multer = require('multer');
 const crypto = require('crypto');
 const ghostSellerApi = require('./ghostseller-api');
+const vipBestModsApi = require('./vipbestmods-api');
+// Sumber stok 'auto' (key dipesan live ke provider): ghostseller & vipbestmods -> dianggap unlimited.
+const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods';
 // reseller-api.js (vipibmstore) dicabut total -- file-nya udah dihapus dari
 // repo. Auto-restock sekarang cuma lewat GhostSeller (ghostseller-api.js).
 
@@ -1846,7 +1849,7 @@ function resolveStockSourceForDays(product, selectedDays, selectedUnit) {
   // "API key belum diatur" yang membingungkan admin).
   if (selectedDays && Array.isArray(product.pricingOptions)) {
     const opt = findPricingOpt(product, selectedDays, selectedUnit);
-    if (opt && opt.stockSource === 'ghostseller') return 'ghostseller';
+    if (opt && isAutoStockSource(opt.stockSource)) return opt.stockSource;
   }
   return 'manual';
 }
@@ -1878,6 +1881,30 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
       return { key, outOfStock: !key, error: key ? null : 'GhostSeller tidak mengembalikan key' };
     }
     return { key: null, outOfStock: true, error: result.message || 'Gagal auto-restock key dari GhostSeller', code: result.code };
+  }
+
+  // ── Mode 'vipbestmods' — auto restock live dari Reseller API V2 VIPBestMods.
+  // Mapping per-varian: vipItemId (ANGKA) + vipStockMode ('v2'|'manual').
+  // idempotencyKey stabil (id transaksi) mencegah saldo provider terpotong 2x.
+  if (stockSource === 'vipbestmods') {
+    const opt = findPricingOpt(product, selectedDays, selectedUnit);
+    const itemId = opt && opt.vipItemId;
+    if (itemId === null || itemId === undefined || itemId === '') {
+      return { key: null, outOfStock: true, error: 'Varian ini belum di-mapping ke VIPBestMods (pilih item di Edit Produk).' };
+    }
+    const result = await vipBestModsApi.orderKey(settings, {
+      itemId,
+      stockMode: opt.vipStockMode || 'v2',
+      idempotencyKey: ctx.idempotencyKey,
+      reference: ctx.customerReference
+    });
+    if (result.success) {
+      const key = result.data?.codes?.[0] || null;
+      return { key, outOfStock: !key, error: key ? null : 'VIPBestMods tidak mengembalikan key' };
+    }
+    console.error('[vipbestmods] order gagal:', result.code, result.message);
+    if (result.code === 'INSUFFICIENT_BALANCE') console.error('[vipbestmods] SALDO RESELLER HABIS -- topup di dashboard VIPBestMods');
+    return { key: null, outOfStock: true, error: vipBestModsApi.customerMessage(result.code, result.message), code: result.code };
   }
 
   // ── Mode manual (untuk varian ini spesifik) — logika lama, TIDAK diubah ──
@@ -1963,7 +1990,7 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     let price = variant.price;
     const selectedDays = variant.selectedDays, selectedUnit = variant.selectedUnit;
 
-    if (resolveStockSourceForDays(product, selectedDays, selectedUnit) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
+    if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
       return res.json({ success: false, message: 'Stok habis' });
     }
 
@@ -2472,9 +2499,9 @@ app.get('/buy/:id', requireAuth, async (req, res) => {
       // vipibmstore ('auto') dicabut total -- cuma 'ghostseller' yang dianggap
       // unlimited di sini sekarang.
       const stockOpt = days ? findPricingOpt(product, days, unit) : null;
-      const variantStockSource = stockOpt?.stockSource === 'ghostseller' ? 'ghostseller' : 'manual';
+      const variantStockSource = isAutoStockSource(stockOpt?.stockSource) ? stockOpt.stockSource : 'manual';
       let stok;
-      if (variantStockSource === 'ghostseller') {
+      if (isAutoStockSource(variantStockSource)) {
         stok = Infinity;
       } else if (days) {
         const tagged = allKeys.filter(k => {
@@ -2549,7 +2576,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
     let price = variant.price;
     const selectedDays = variant.selectedDays, selectedUnit = variant.selectedUnit;
 
-    if (resolveStockSourceForDays(product, selectedDays, selectedUnit) !== 'ghostseller' && (!product.keys || product.keys.length === 0)) {
+    if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
       return res.json({ success: false, message: 'Stok habis' });
     }
 
@@ -3946,7 +3973,7 @@ app.post('/admin/product/add', requireAdmin, (req, res, next) => {
     // resolveProductKey(). Kalau butuh auto-restock sekarang pakai
     // GhostSeller (set manual dulu di sini, baru pilih GhostSeller per
     // varian di halaman Edit Produk).
-    const resolvedStockMode = stockMode === 'ghostseller' ? 'ghostseller' : 'manual';
+    const resolvedStockMode = isAutoStockSource(stockMode) ? stockMode : 'manual';
     let image = imgUrl?.trim() || '';
     if (req.file) {
       if (!isVercel) {
@@ -4410,6 +4437,58 @@ app.post('/admin/settings/ghostseller-api', requireAdmin, async (req, res) => {
       testStatus: testResult.status,
       productCount: testResult.success ? (Array.isArray(testResult.data?.data) ? testResult.data.data.length : 0) : undefined
     });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// ── VIPBestMods Reseller API V2 — simpan kredensial + tes koneksi (saldo + katalog) ──
+// apiSecret tidak pernah dikirim balik ke browser; kosong saat simpan = pakai yang lama.
+app.post('/admin/settings/vipbestmods-api', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const old = settings.vipBestModsApi || {};
+    const { apiKey, apiSecret, baseUrl } = req.body;
+    const next = {
+      apiKey: apiKey !== undefined ? String(apiKey).trim() : (old.apiKey || ''),
+      apiSecret: (apiSecret !== undefined && String(apiSecret).trim() !== '') ? String(apiSecret).trim() : (old.apiSecret || ''),
+      baseUrl: vipBestModsApi.normalizeBaseUrl(baseUrl !== undefined && String(baseUrl).trim() ? baseUrl : (old.baseUrl || ''))
+    };
+    const tmp = { vipBestModsApi: next };
+    const steps = [];
+    let ok = true;
+    if (!next.apiKey || !next.apiSecret) {
+      steps.push({ step: 'config', ok: false, message: 'API Key / API Secret belum lengkap.' });
+      ok = false;
+    } else {
+      steps.push({ step: 'config', ok: true, message: 'Konfigurasi terisi.' });
+      const bal = await vipBestModsApi.getBalance(tmp);
+      steps.push({ step: 'balance', ok: bal.success, message: bal.success ? `Saldo reseller: Rp ${Number(bal.data?.balance || 0).toLocaleString('id-ID')}` : vipBestModsApi.customerMessage(bal.code, bal.message) + ` (${bal.code})`, balance: bal.success ? Number(bal.data?.balance || 0) : undefined });
+      if (!bal.success) ok = false;
+      const prods = await vipBestModsApi.getProducts(tmp, { force: true });
+      steps.push({ step: 'products', ok: prods.success, message: prods.success ? `${prods.data.length} item di katalog.` : vipBestModsApi.customerMessage(prods.code, prods.message) + ` (${prods.code})` });
+      if (!prods.success) ok = false;
+    }
+    settings.vipBestModsApi = {
+      ...next,
+      lastTestStatus: ok ? 'ok' : 'failed',
+      lastTestAt: new Date().toISOString(),
+      lastTestMessage: ok ? null : (steps.find(x => !x.ok)?.message || 'Koneksi gagal')
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true, testSuccess: ok, steps, baseUrl: next.baseUrl });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// Katalog VIPBestMods untuk dropdown mapping di Edit Produk (cache 3 menit).
+app.get('/admin/vipbestmods-api/products', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const result = await vipBestModsApi.getProducts(settings, { force: req.query.refresh === '1' });
+    if (!result.success) return res.json({ success: false, message: vipBestModsApi.customerMessage(result.code, result.message), code: result.code });
+    res.json({ success: true, products: result.data || [] });
   } catch (error) {
     res.json({ success: false, message: error.message });
   }
@@ -4884,7 +4963,7 @@ app.get('/api/products', async (req, res) => {
     // popularProductsSafe atas, termasuk kenapa 999999 bukan Infinity --
     // endpoint ini juga JSON.stringify lewat res.json(), masalah yang sama
     // persis berlaku di sini).
-    .map(({ keys, ...safe }) => ({ ...safe, stockCount: (safe.stockMode === 'ghostseller' || safe.stockMode === 'mixed' || (Array.isArray(safe.pricingOptions) && safe.pricingOptions.some(o => o.stockSource === 'ghostseller'))) ? 999999 : (keys || []).length }));
+    .map(({ keys, ...safe }) => ({ ...safe, stockCount: (isAutoStockSource(safe.stockMode) || safe.stockMode === 'mixed' || (Array.isArray(safe.pricingOptions) && safe.pricingOptions.some(o => isAutoStockSource(o.stockSource)))) ? 999999 : (keys || []).length }));
   res.json(products);
 });
 
@@ -5256,7 +5335,7 @@ app.post('/admin/product/:id', requireAdmin, async (req, res) => {
     // jadi p.resellerItemId di bawah ini murni peninggalan data lama yang
     // tidak lagi dibaca oleh resolveProductKey -- disimpan apa adanya kalau
     // masih dikirim client, tapi tidak berpengaruh ke apapun.
-    if (stockMode === 'ghostseller' || stockMode === 'manual' || stockMode === 'mixed') p.stockMode = stockMode;
+    if (isAutoStockSource(stockMode) || stockMode === 'manual' || stockMode === 'mixed') p.stockMode = stockMode;
     if (resellerItemId !== undefined) {
       const rid = parseInt(resellerItemId);
       p.resellerItemId = (!isNaN(rid) && rid > 0) ? rid : null;
@@ -5301,9 +5380,13 @@ app.post('/admin/product/:id', requireAdmin, async (req, res) => {
           // SELALU 'manual' (termasuk data lama yang mungkin masih kirim
           // 'auto' dari cache browser lama -- jangan pernah diloloskan,
           // ini justru sumber insiden Sep 2026).
-          const rowStockSource = o.stockSource === 'ghostseller' ? 'ghostseller' : 'manual';
+          const rowStockSource = isAutoStockSource(o.stockSource) ? o.stockSource : 'manual';
+          // Mapping VIPBestMods: id item WAJIB angka (kalau bukan angka -> null).
+          const vipIdNum = Number(o.vipItemId);
+          const vipItemId = (o.vipItemId !== null && o.vipItemId !== undefined && o.vipItemId !== '' && Number.isFinite(vipIdNum) && vipIdNum > 0) ? vipIdNum : null;
+          const vipStockMode = o.vipStockMode === 'manual' ? 'manual' : 'v2';
           const unit = ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari';
-          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, stockSource: rowStockSource, unit };
+          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, vipItemId, vipStockMode, stockSource: rowStockSource, unit };
         })
         .filter(o => o.days > 0 && o.price >= 0);
       // FIX BUG "1 Jam ketuker/dobel jadi 1 DAYS": dedup per (days, unit) --

@@ -24,8 +24,8 @@ const __opts = (product) => {
   <div style="display:flex;flex-direction:column;gap:10px;" class="edot-pad-b">
     <% products.forEach(product => {
       const opts = __opts(product);
-      const hasGs = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller');
-      const unlimited = product.stockMode === 'ghostseller' || product.stockMode === 'mixed' || hasGs;
+      const hasGs = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods');
+      const unlimited = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'mixed' || hasGs;
       const isOut = !unlimited && (product.keyCount || 0) === 0;
       const offline = (product.operationalStatus || 'online') === 'offline';
       const bad = isOut || offline;

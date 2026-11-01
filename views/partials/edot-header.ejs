@@ -4,6 +4,9 @@ const __p = (typeof reqPath !== 'undefined') ? reqPath : '/';
 %>
 <header class="edot-header" id="navbar">
   <div class="edot-header-in">
+    <% if (__p !== '/') { %>
+    <a href="/" class="edot-hbtn" aria-label="Kembali" onclick="if(history.length>1&&document.referrer.indexOf(location.host)>-1){history.back();return false;}" style="margin-right:-2px;"><iconify-icon icon="mdi:arrow-left" style="font-size:20px;"></iconify-icon><span class="edot-sr">&larr;</span></a>
+    <% } %>
     <%- include('edot-brand') %>
     <nav class="edot-hnav">
       <a href="/" class="<%= __p === '/' ? 'on' : '' %>">Beranda</a>

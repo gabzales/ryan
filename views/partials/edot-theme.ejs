@@ -54,7 +54,10 @@ html.edot .text-white\/60,html.edot .text-white\/70,html.edot .text-white\/50{co
 html.edot .text-white[class*="bg-gradient"],html.edot .text-white[class*="bg-blue"]{color:#fff!important;}
 html.edot .keep-white{color:#fff!important;}
 html.edot [class*="bg-white/"]{background-color:rgba(15,23,42,.04)!important;}
-html.edot [class*="bg-black/"]{background-color:rgba(15,23,42,.05)!important;}
+html.edot [class*="bg-black/"]:not(.absolute):not(.fixed){background-color:rgba(15,23,42,.05)!important;}
+html.edot .absolute[class*="bg-black/"],html.edot .fixed[class*="bg-black/"]{background-color:rgba(15,23,42,.55)!important;}
+.edot-sr{display:none;}
+iconify-icon:not(:defined) + .edot-sr{display:inline;font-weight:900;}
 html.edot [class*="border-white/"]{border-color:var(--border)!important;}
 html.edot [class*="bg-[#0"],html.edot [class*="bg-[#1"]{background-color:#fff!important;}
 html.edot [class*="border-purple-"],html.edot [class*="border-indigo-"],html.edot [class*="border-violet-"]{border-color:var(--border-md)!important;}

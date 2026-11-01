@@ -227,10 +227,12 @@ async function loadProduct() {
       days: o.days,
       price: o.price,
       reseller_price: (o.reseller_price != null ? o.reseller_price : ''),
-      stockSource: o.stockSource === 'ghostseller' ? 'ghostseller' : 'manual',
+      stockSource: ['ghostseller','vipbestmods'].includes(o.stockSource) ? o.stockSource : 'manual',
       unit: ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari',
       ghostSellerProductId: o.ghostSellerProductId || null,
-      ghostSellerDurationId: o.ghostSellerDurationId || null
+      ghostSellerDurationId: o.ghostSellerDurationId || null,
+      vipItemId: o.vipItemId || null,
+      vipStockMode: o.vipStockMode === 'manual' ? 'manual' : 'v2'
     }));
   } else if (currentProduct.items && currentProduct.items.length > 0) {
     pricingOptions = currentProduct.items.map(item => {
@@ -246,7 +248,9 @@ async function loadProduct() {
         stockSource: 'manual',
         unit,
         ghostSellerProductId: null,
-        ghostSellerDurationId: null
+        ghostSellerDurationId: null,
+        vipItemId: null,
+        vipStockMode: 'v2'
       };
     }).filter(o => o.days > 0);
   } else {
@@ -260,7 +264,7 @@ async function loadProduct() {
   // Muat daftar produk GhostSeller dulu (untuk dropdown mapping di tiap
   // baris varian mode GhostSeller), baru render baris pricing supaya
   // dropdown langsung terisi sejak awal.
-  await loadGhostSellerProducts();
+  await Promise.all([loadGhostSellerProducts(), loadVipProducts()]);
 }
 
 function previewImg(url) {
@@ -365,7 +369,7 @@ function renderPricingRows() {
     // 'auto' otomatis dianggap 'manual' di sini (aman: cuma nampilin
     // "0 stok" sampai admin isi key/ganti ke GhostSeller, bukan nyoba
     // manggil provider yang kodenya udah dihapus).
-    const mode = opt.stockSource === 'ghostseller' ? 'ghostseller' : 'manual';
+    const mode = ['ghostseller','vipbestmods'].includes(opt.stockSource) ? opt.stockSource : 'manual';
     return `
     <div class="flex flex-col gap-2 p-3 rounded-xl" style="background:rgba(124,47,214,.06);border:1px solid rgba(124,47,214,.2)">
       <div class="flex gap-2 items-center">
@@ -408,7 +412,19 @@ function renderPricingRows() {
           ${mode === 'ghostseller' ? 'border-violet-500/50 bg-violet-500/15 text-violet-300' : 'border-white/10 text-zinc-500'}">
           <iconify-icon icon="mdi:autorenew"></iconify-icon> GhostSeller
         </button>
+        <button type="button" onclick="setRowStockSource(${i},'vipbestmods')"
+          class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all flex items-center justify-center gap-1
+          ${mode === 'vipbestmods' ? 'border-sky-500/50 bg-sky-500/15 text-sky-300' : 'border-white/10 text-zinc-500'}">
+          <iconify-icon icon="mdi:autorenew"></iconify-icon> VIPBestMods
+        </button>
       </div>
+      ${mode === 'vipbestmods' ? `
+      <div class="pl-1 flex flex-col gap-1.5">
+        <select class="hm-input text-[11px] py-2" onchange="onVipItemChange(${i}, this.value)">
+          ${renderVipItemOptions(opt.vipItemId)}
+        </select>
+        <p class="text-[9px] text-zinc-600">Key varian ini dipesan LIVE ke VIPBestMods (saldo reseller terpotong) tiap ada order. Pilih item yang durasinya SAMA dengan varian ini. Isi API Key &amp; Secret di menu Pengaturan dulu.</p>
+      </div>` : ''}
       ${mode === 'ghostseller' ? `
       <div class="pl-1 flex flex-col gap-1.5">
         <select class="hm-input text-[11px] py-2" onchange="onGhostSellerProductChange(${i}, this.value)">
@@ -452,6 +468,42 @@ function renderGhostSellerDurationOptions(selectedProductId, selectedDurationId)
 // Ganti produk GhostSeller di 1 baris varian -- reset durationId lama
 // karena durasi selalu spesifik ke 1 produk, lalu render ulang supaya
 // dropdown durasi ikut ter-update ke pilihan produk yang baru.
+
+// ── VIPBestMods: katalog item (GET /v2/products), 1 item = 1 varian durasi ──
+let vipProductList = [];
+async function loadVipProducts() {
+  try {
+    const res = await fetch('/admin/vipbestmods-api/products');
+    const data = await res.json();
+    vipProductList = data.success ? (data.products || []) : [];
+    if (!data.success) console.warn('VIPBestMods katalog belum bisa dimuat:', data.message);
+  } catch (e) { vipProductList = []; }
+  renderPricingRows();
+}
+function renderVipItemOptions(selectedId) {
+  if (vipProductList.length === 0) {
+    return selectedId
+      ? `<option value="${selectedId}" selected>Item #${selectedId} (katalog belum termuat)</option>`
+      : `<option value="" disabled selected>(Katalog VIPBestMods kosong / belum dikonfigurasi)</option>`;
+  }
+  const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let html = `<option value="">— Pilih item VIPBestMods —</option>`;
+  if (selectedId && !vipProductList.some(p => Number(p.id) === Number(selectedId))) {
+    html += `<option value="${selectedId}" selected>Item #${selectedId} (tidak ada di katalog)</option>`;
+  }
+  return html + vipProductList.map(p => {
+    const stock = p.stock === 'unlimited' ? 'unlimited' : ('stok ' + p.stock);
+    const off = p.status !== 'active' ? ' [HABIS]' : '';
+    return `<option value="${p.id}" ${Number(p.id) === Number(selectedId) ? 'selected' : ''}>${esc(p.product_name)} — ${esc(p.item_name)} · Rp ${Number(p.price||0).toLocaleString('id-ID')} · ${stock}${off}</option>`;
+  }).join('');
+}
+function onVipItemChange(i, val) {
+  const id = val ? Number(val) : null;
+  pricingOptions[i].vipItemId = (id && Number.isFinite(id)) ? id : null;
+  const item = vipProductList.find(p => Number(p.id) === id);
+  pricingOptions[i].vipStockMode = item && item.stock_mode === 'manual' ? 'manual' : 'v2';
+}
+
 function onGhostSellerProductChange(i, productId) {
   pricingOptions[i].ghostSellerProductId = productId || null;
   pricingOptions[i].ghostSellerDurationId = null;
@@ -470,7 +522,7 @@ function addPricingRow() {
   // gagal jelas dari awal", bukan "keliatan berhasil dibuat tapi diam-diam
   // butuh API key yang gak ada" (ini penyebab customer bayar tapi key gak
   // pernah terkirim, kejadian nyata Sep 2026).
-  pricingOptions.push({ days: 7, price: 0, reseller_price: '', stockSource: 'manual', unit: 'hari', ghostSellerProductId: null, ghostSellerDurationId: null });
+  pricingOptions.push({ days: 7, price: 0, reseller_price: '', stockSource: 'manual', unit: 'hari', ghostSellerProductId: null, ghostSellerDurationId: null, vipItemId: null, vipStockMode: 'v2' });
   renderPricingRows();
 }
 
@@ -594,10 +646,12 @@ async function saveProduct() {
       price: o.price,
       reseller_price: (o.reseller_price !== '' && o.reseller_price != null && !isNaN(parseInt(o.reseller_price)) && parseInt(o.reseller_price) >= 0)
         ? parseInt(o.reseller_price) : null,
-      stockSource: o.stockSource === 'ghostseller' ? 'ghostseller' : 'manual',
+      stockSource: ['ghostseller','vipbestmods'].includes(o.stockSource) ? o.stockSource : 'manual',
       unit: ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari',
       ghostSellerProductId: (o.stockSource === 'ghostseller' && o.ghostSellerProductId) ? o.ghostSellerProductId : null,
-      ghostSellerDurationId: (o.stockSource === 'ghostseller' && o.ghostSellerDurationId) ? o.ghostSellerDurationId : null
+      ghostSellerDurationId: (o.stockSource === 'ghostseller' && o.ghostSellerDurationId) ? o.ghostSellerDurationId : null,
+      vipItemId: (o.stockSource === 'vipbestmods' && o.vipItemId) ? Number(o.vipItemId) : null,
+      vipStockMode: o.vipStockMode === 'manual' ? 'manual' : 'v2'
     }));
   if (validPricing.length === 0) {
     showToast('Tambahkan minimal 1 paket harga', 'error');
@@ -609,9 +663,16 @@ async function saveProduct() {
     return;
   }
 
-  const ghostSellerCount = validPricing.filter(o => o.stockSource === 'ghostseller').length;
-  const manualCount = validPricing.length - ghostSellerCount;
-  const summaryStockMode = manualCount === validPricing.length ? 'manual' : (manualCount === 0 ? 'ghostseller' : 'mixed');
+  const missingVip = validPricing.find(o => o.stockSource === 'vipbestmods' && !o.vipItemId);
+  if (missingVip) {
+    showToast(`Varian ${missingVip.days} ${missingVip.unit} pakai VIPBestMods tapi item belum dipilih`, 'error');
+    return;
+  }
+
+  const autoRows = validPricing.filter(o => o.stockSource !== 'manual');
+  const manualCount = validPricing.length - autoRows.length;
+  const allSameAuto = autoRows.length > 0 && autoRows.every(o => o.stockSource === autoRows[0].stockSource);
+  const summaryStockMode = manualCount === validPricing.length ? 'manual' : ((manualCount === 0 && allSameAuto) ? autoRows[0].stockSource : 'mixed');
 
   const res = await fetch(`/admin/product/${currentProduct.id}`, {
     method: 'POST',

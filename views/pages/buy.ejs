@@ -143,10 +143,10 @@ const pageTitle = 'Beli ' + product.name;
                   // (itu penyebab customer bisa checkout produk yang sebenarnya
                   // sudah rusak/tanpa kredensial provider, insiden Sep 2026).
                   const po = (Array.isArray(product.pricingOptions) && product.pricingOptions[idx]) || {};
-                  const itemStockSource = po.stockSource === 'ghostseller' ? 'ghostseller' : 'manual';
+                  const itemStockSource = (po.stockSource === 'ghostseller' || po.stockSource === 'vipbestmods') ? po.stockSource : 'manual';
                   let itemStock = 0;
                   let isOutOfStock = false;
-                  if (itemStockSource === 'ghostseller') {
+                  if (itemStockSource !== 'manual') {
                     isOutOfStock = false;
                     itemStock = 1; // sekadar penanda "ada", bukan angka stok riil (unlimited di GhostSeller)
                   } else {
@@ -301,8 +301,8 @@ const pageTitle = 'Beli ' + product.name;
           // tetap dilakukan saat checkout beneran (resolveProductKey).
           // vipibmstore ('auto') dicabut total -- cuma 'ghostseller' yang
           // dianggap unlimited.
-          const hasAnyGhostSellerVariant = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller');
-          const hasStock = product.stockMode === 'ghostseller' || product.stockMode === 'mixed' || hasAnyGhostSellerVariant || (product.keyCount||0) > 0;
+          const hasAnyGhostSellerVariant = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods');
+          const hasStock = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'mixed' || hasAnyGhostSellerVariant || (product.keyCount||0) > 0;
         %>
         <% if (hasStock) { %>
             <button id="submitBtn" onclick="handleOrder()"
@@ -427,9 +427,7 @@ const pageTitle = 'Beli ' + product.name;
                     <iconify-icon icon="mdi:qrcode-scan" class="text-purple-400"></iconify-icon>
                     Pembayaran QRIS
                 </h3>
-                <button onclick="closePayment()" class="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
-                    <iconify-icon icon="mdi:close"></iconify-icon>
-                </button>
+                <button type="button" onclick="closePayment()" aria-label="Tutup" class="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white transition-colors" style="font-size:16px;font-weight:900;line-height:1;position:relative;z-index:5;">&#10005;</button>
             </div>
 
             <div class="p-5 space-y-4">
@@ -878,6 +876,8 @@ const pageTitle = 'Beli ' + product.name;
             btn.innerHTML = '<iconify-icon icon="mdi:refresh" class="text-sm"></iconify-icon> Cek Status Sekarang';
         }, 1000);
     }
+
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { const m = document.getElementById('paymentModal'); if (m && !m.classList.contains('hidden')) closePayment(); } });
 
     function closePayment() {
         stopPay();
