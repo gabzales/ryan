@@ -325,17 +325,23 @@ const pageTitle = 'Beli ' + product.name;
         <% } %>
 
         <!-- WA CS + TELEGRAM CS -->
+        <% const __waCs = String(settings.contact?.whatsapp || '').replace(/\D/g, ''); const __waCh = String(settings.contact?.waChannel || '').trim(); %>
+        <% if (__waCs || __waCh) { %>
         <div class="flex gap-2">
-            <a href="https://wa.me/<%= settings.contact?.whatsapp || '6285184794731' %>" target="_blank" rel="noopener"
+            <% if (__waCs) { %>
+            <a href="https://wa.me/<%= __waCs %>" target="_blank" rel="noopener"
                class="flex-1 btn-ghost py-3 rounded-xl text-white/60 text-xs font-medium flex items-center justify-center gap-1.5">
                 <iconify-icon icon="solar:chat-round-bold" class="text-sm text-green-400"></iconify-icon>WA CS
             </a>
-            <a href="https://whatsapp.com/channel/0029Vb8EeCfIHphCA9Tacm1u"
-               target="_blank" rel="noopener"
+            <% } %>
+            <% if (__waCh) { %>
+            <a href="<%= __waCh %>" target="_blank" rel="noopener"
                class="flex-1 btn-ghost py-3 rounded-xl text-white/60 text-xs font-medium flex items-center justify-center gap-1.5">
                 <iconify-icon icon="mdi:whatsapp" class="text-sm text-green-400"></iconify-icon>Channel WA
             </a>
+            <% } %>
         </div>
+        <% } %>
     </div>
 
     <!-- ── ULASAN & RATING ── -->

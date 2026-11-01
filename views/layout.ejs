@@ -9,12 +9,12 @@
     <meta name="theme-color" content="<%= __edot ? '#ffffff' : '#09040f' %>">
     <link rel="icon" type="image/png" href="/uploads/favicon-gn.png">
     <link rel="apple-touch-icon" href="/uploads/favicon-gn.png">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/tw.css?v=<%= typeof cssVer !== 'undefined' ? cssVer : '1' %>">
     <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>tailwind.config={theme:{extend:{fontFamily:{inter:['Inter','sans-serif']}}}}</script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"></noscript>
     <style>
         /* ═══════════════════════════════
            RYANEWERA — Clean Minimal UI
@@ -590,6 +590,14 @@
     }, {passive:true});
 
     // ─── PANELS ───
+    // Balik dari halaman lain (bfcache iOS/Android): pastikan tidak ada overlay/scroll-lock yang nyangkut.
+    window.addEventListener('pageshow', function (e) {
+        if (!e.persisted) return;
+        document.body.classList.remove('no-scroll');
+        document.body.style.overflow = '';
+        ['search-panel','cart-panel','menu-drawer'].forEach(function (id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+        var tp = document.getElementById('track-panel'); if (tp) tp.classList.add('hidden');
+    });
     function _closeSearch() { const p=document.getElementById('search-panel'); p.style.display='none'; document.body.classList.remove('no-scroll'); }
     function _closeCart()   { const p=document.getElementById('cart-panel');   p.style.display='none'; document.body.classList.remove('no-scroll'); }
     function _closeTrack()  { document.getElementById('track-panel').classList.add('hidden'); document.body.classList.remove('no-scroll'); }

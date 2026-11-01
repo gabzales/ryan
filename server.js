@@ -306,6 +306,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// Versi cache-busting untuk /tw.css (CSS statis hasil build Tailwind)
+let CSS_VER = '1';
+try { CSS_VER = String(Math.floor(require('fs').statSync(path.join(__dirname, 'public/tw.css')).mtimeMs)); } catch (e) { /* belum dibuild */ }
+
 // Inject settings + isAdmin ke semua view otomatis
 app.use(async (req, res, next) => {
   // Kalau cache settings kosong, fetch dari Supabase dulu
@@ -313,9 +317,31 @@ app.use(async (req, res, next) => {
   if (!settings || Object.keys(settings).length === 0) {
     settings = await db.readFresh('settings.json').catch(() => ({}));
   }
+  // Migrasi sekali: link Channel WA dulu hardcoded di buy.ejs. Sekarang diambil dari
+  // settings.contact.waChannel (bisa diubah di Admin > Kontak). Kalau masih kosong atau masih
+  // link lama, isi dengan link channel yang benar.
+  if (!global.__waChannelMigrated) {
+    global.__waChannelMigrated = true;
+    const NEW_CH = 'https://whatsapp.com/channel/0029VbCdvbcCsU9LfoktIE40';
+    const OLD_CH = 'https://whatsapp.com/channel/0029Vb8EeCfIHphCA9Tacm1u';
+    const cur = settings && settings.contact && settings.contact.waChannel;
+    if (settings && Object.keys(settings).length && !settings.waChannelMigrated && (!cur || cur === OLD_CH)) {
+      try {
+        const fresh = await readFresh('settings.json');
+        fresh.contact = fresh.contact || {};
+        if (!fresh.waChannelMigrated && (!fresh.contact.waChannel || fresh.contact.waChannel === OLD_CH)) {
+          fresh.contact.waChannel = NEW_CH;
+          fresh.waChannelMigrated = true; // sekali saja -- kalau admin kosongkan lagi, tidak diisi ulang
+          await writeDB('settings.json', fresh);
+          settings = fresh;
+        }
+      } catch (e) { console.error('[migrasi waChannel] gagal:', e.message); global.__waChannelMigrated = false; }
+    }
+  }
   res.locals.settings = settings || {};
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
   res.locals.reqPath = req.path || '/';
+  res.locals.cssVer = CSS_VER;
   res.locals.user = getSessionUser(req);
   next();
 });
@@ -4188,7 +4214,7 @@ app.post('/admin/product/add-keys/:id', requireAdmin, async (req, res) => {
 app.post('/admin/settings/update', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
-    const { siteName, gamePanelName, about, marqueeText, whatsapp, telegram, email, downloadUrl, adminUsername, categories, categoryLabels, logoUrl, fonnteToken, singleDeviceAdminLogin, showPopularSection, homeProductsLimit } = req.body;
+    const { siteName, gamePanelName, about, marqueeText, whatsapp, telegram, email, downloadUrl, waChannel, adminUsername, categories, categoryLabels, logoUrl, fonnteToken, singleDeviceAdminLogin, showPopularSection, homeProductsLimit } = req.body;
 
     if (siteName)      settings.siteName      = siteName;
     if (gamePanelName) settings.gamePanelName = gamePanelName;
@@ -4216,6 +4242,7 @@ app.post('/admin/settings/update', requireAdmin, async (req, res) => {
     if (telegram !== undefined) settings.contact.telegram = telegram;
     if (email    !== undefined) settings.contact.email    = email;
     if (downloadUrl !== undefined) settings.contact.downloadUrl = downloadUrl.trim();
+    if (waChannel !== undefined) settings.contact.waChannel = String(waChannel).trim();
 
     // Handle categories update from JSON string or array
     if (categories) {

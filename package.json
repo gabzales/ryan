@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "build:css": "tailwindcss -c tailwind.ryan.config.js -i src_css/tw.css -o public/tw.css --minify"
   },
   "keywords": [
     "game",
@@ -31,7 +32,8 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "tailwindcss": "^3.4.17"
   },
   "engines": {
     "node": ">=14.0.0"

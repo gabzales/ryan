@@ -920,6 +920,11 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                     </div>
                 </div>
                 <div class="mt-3">
+                    <div class="setting-row-label">Link Channel WhatsApp</div>
+                    <input type="url" name="waChannel" value="<%= settings.contact?.waChannel||'' %>" class="hm-input" placeholder="https://whatsapp.com/channel/...">
+                    <div class="text-[10px] mt-1" style="color:var(--text-3);">Dipakai tombol "Channel WA" di halaman produk, footer, dan menu. Kosongkan untuk menyembunyikan tombol.</div>
+                </div>
+                <div class="mt-3">
                     <div class="setting-row-label">Link Download APK / Channel</div>
                     <input type="url" name="downloadUrl" value="<%= settings.contact?.downloadUrl||'' %>" class="hm-input" placeholder="https://whatsapp.com/channel/... atau link Google Drive APK">
                     <div class="text-[10px] mt-1" style="color:var(--text-3);">Ditampilkan sebagai tombol "Download APK" di halaman produk. Kosongkan untuk menyembunyikan tombol.</div>
