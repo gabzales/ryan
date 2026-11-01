@@ -312,6 +312,7 @@ app.use(async (req, res, next) => {
   }
   res.locals.settings = settings || {};
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
+  res.locals.reqPath = req.path || '/';
   res.locals.user = getSessionUser(req);
   next();
 });
@@ -1323,36 +1324,9 @@ app.get('/', async (req, res) => {
   // cache 8 detik dulu, cukup segar untuk listing produk publik.
   const products = (await readSmart('products.json')).filter(p => p.status === 'active');
 
-  // ── Leaderboard real-time (hanya dari transaksi sukses pembelian produk) ──
-  const transactions = readDB('transactions.json');
-  const users = readDB('users.json');
-  const leaderboardEntries = computeLeaderboard(transactions, users, 8);
-
-  // ── Server-side fake testimonials ──
-  const fakeTestimonials = [
-    { id:'fake1', name:'Rizky F.',    rating:5, text:'Mod FF-nya mantap, udah 3 bulan pakai dan aman-aman aja. Fitur lengkap dari ESP sampai fly hack. CS juga responsif banget!', productName:'FREE FIRE MAX',      date:'2025-05-20', verified:true },
-    { id:'fake2', name:'Andi S.',     rating:5, text:'ML mod-nya lengkap banget! Map hack, drone view, sampai skin all hero ada. Auto update jadi nggak perlu repot tiap update.', productName:'MOBILE LEGENDS',    date:'2025-05-18', verified:true },
-    { id:'fake3', name:'Dimas P.',    rating:5, text:'Support fast response! Pas ada masalah langsung dibantu sampai beres. PUBG mod-nya juga smooth, nggak lag sama sekali.', productName:'PUBG MOBILE',   date:'2025-05-15', verified:true },
-    { id:'fake4', name:'farhan',      rating:5, text:'Beli sertifikat anti-banned udah 2x dan alhamdulillah akun tetap aman. Worth it banget harganya segitu.', productName:'SERTIFIKAT', date:'2025-05-10', verified:true },
-    { id:'fake5', name:'Wanda M.',    rating:4, text:'Produknya bagus, pengiriman key cepet banget. Cuma kadang agak lag di device lama tapi overall oke lah.', productName:'MOBILE LEGENDS',    date:'2025-05-08', verified:true },
-    { id:'fake6', name:'ACA',         rating:5, text:'Udah lama langganan di sini, belum pernah kecewa. Proses beli gampang, bayar QRIS langsung dapat key. Recommended!', productName:'FREE FIRE MAX',      date:'2025-05-05', verified:true },
-    { id:'fake7', name:'bintang',     rating:5, text:'Lifetime PUBGM worth it banget. Udah 6 bulan masih lancar jaya, fitur no recoil-nya mantul.', productName:'PUBG MOBILE',   date:'2025-04-28', verified:true },
-    { id:'fake8', name:'Rizky',       rating:4, text:'Kalau FF mod-nya top. Pernah ada issue tapi langsung di-handle sama admin. Keep up the good work!', productName:'FREE FIRE MAX',      date:'2025-04-20', verified:true },
-    { id:'fake9', name:'Kevin',       rating:5, text:'CODM mod anti-recoil smooth banget. Rank dari Silver langsung naik ke Platinum dalam seminggu haha.', productName:'CODM',    date:'2025-04-15', verified:true },
-    { id:'fake10',name:'abil',        rating:5, text:'Ini toko mod menu terpercaya yang pernah aku coba. Transaksi aman, key langsung masuk, CS ramah.', productName:'FREE FIRE MAX',      date:'2025-04-10', verified:true },
-    { id:'fake11',name:'Hergi',       rating:5, text:'Valorant ESP-nya akurat banget. Sudah 2 bulan pake dan belum ada masalah sama sekali. Pelayanan top!', productName:'VALORANT', date:'2025-04-05', verified:true },
-    { id:'fake12',name:'rehan',       rating:5, text:'HOK mod-nya mantap, map hack dan skin unlock semua ada. Proses beli cepet dan key langsung terkirim.', productName:'HOK',     date:'2025-03-28', verified:true },
-  ];
-  const realTestimonials = readDB('testimonials.json').filter(t => t.verified);
-  const testiUsernames = new Set(realTestimonials.map(t => (t.username||'').toLowerCase()));
-  const paddedFake = fakeTestimonials.filter(f => !testiUsernames.has((f.name||'').toLowerCase()));
-  const testimonialsForHome = [...realTestimonials, ...paddedFake].slice(0, 12);
-  const avgRating = testimonialsForHome.length
-    ? (testimonialsForHome.reduce((s, t) => s + (t.rating || 0), 0) / testimonialsForHome.length).toFixed(1)
-    : '4.9';
-  const ratingCounts = {1:0,2:0,3:0,4:0,5:0};
-  testimonialsForHome.forEach(t => { if (t.rating >= 1 && t.rating <= 5) ratingCounts[t.rating]++; });
-  const totalSold = products.reduce((s, p) => s + (p.sold || 0), 0);
+  // Hemat resource: leaderboard/testimoni/rating tidak dipakai lagi di beranda (UI baru),
+  // jadi tidak dibaca/dihitung di sini.
+  const leaderboardEntries = [], testimonialsForHome = [], avgRating = '4.9', ratingCounts = {1:0,2:0,3:0,4:0,5:0}, totalSold = 0;
   // Pakai res.locals.settings yang sudah di-fetch oleh middleware (readFresh fallback)
   const settings = res.locals.settings || readDB('settings.json');
   const user = res.locals.user || getSessionUser(req);
@@ -1386,9 +1360,8 @@ app.get('/', async (req, res) => {
   // "Produk Populer" SELALU nampilin "Habis" untuk produk unlimited-stock,
   // dari dulu (termasuk pas masih vipibmstore) sampai ketauan baru sekarang.
   const UNLIMITED_STOCK_SENTINEL = 999999;
-  const popularProductsSafe = popularProducts.map(({ keys, ...p }) => ({
-    ...p, stockCount: (p.stockMode === 'ghostseller' || p.stockMode === 'mixed' || (Array.isArray(p.pricingOptions) && p.pricingOptions.some(o => o.stockSource === 'ghostseller'))) ? UNLIMITED_STOCK_SENTINEL : (keys || []).length
-  }));
+  // Payload ke browser cukup id+nama 12 produk (untuk notifikasi pembelian), jauh lebih ringan.
+  const popularProductsSafe = popularProducts.slice(0, 12).map(p => ({ id: p.id, name: p.name }));
 
   // Batasi grid "SEMUA PRODUK" di halaman utama supaya tidak lag kalau
   // produk sudah banyak (ratusan+) — server cuma kirim N produk pertama ke
@@ -3317,6 +3290,30 @@ async function autogopayDiagnose(tx, settings, creds, host) {
   if (expiredLocal || ageMin > 20) return V('AGP-U02', 'Lewat masa berlaku, AutoGopay masih "pending"', 'AutoGopay tidak mendeteksi pembayaran untuk QR ini. Penyebab umum: pembeli belum bayar, nominal yang dibayar tidak persis sama, atau sinkron akun GoPay Merchant di AutoGopay bermasalah/terlambat. Cek mutasi GoPay Merchant dan dashboard AutoGopay; kalau memang masuk, hubungi support AutoGopay.' + (diag.webhookInvalidSigRecent ? ` Catatan: ada ${diag.webhookInvalidSigRecent} webhook ditolak (signature) 24 jam terakhir.` : ''));
   return V('AGP-U01', 'Masih menunggu pembayaran', `Baru ${ageMin} menit dan AutoGopay masih "pending" — belum dibayar atau belum terdeteksi.`);
 }
+
+// Tandai selesai MANUAL: key sudah diberikan admin lewat WA, jadi JANGAN ambil key dari stok
+// lagi. Hanya untuk transaksi produk (reseller/deposit harus lewat "Konfirmasi Bayar" supaya
+// upgrade/saldo ikut diproses). Transaksi 'done' otomatis dilewati Sinkron AutoGopay.
+app.post('/admin/transaction/mark-manual/:id', requireAdmin, async (req, res) => {
+  try {
+    const transactions = await readFresh('transactions.json');
+    const t = transactions.find(x => x.id === req.params.id);
+    if (!t) return res.json({ success: false, message: 'Transaksi tidak ditemukan' });
+    if (t.status === 'done') return res.json({ success: false, message: 'Transaksi sudah selesai' });
+    if (t.type === 'reseller' || t.type === 'deposit') {
+      return res.json({ success: false, message: 'Untuk upgrade reseller / top up saldo pakai "Konfirmasi Bayar" supaya diproses otomatis.' });
+    }
+    t.status = 'done';
+    t.manualDelivered = true;
+    t.paidAt = t.paidAt || new Date().toISOString();
+    t.updatedBy = 'admin-manual';
+    t.updatedAt = new Date().toISOString();
+    await writeDB('transactions.json', transactions);
+    res.json({ success: true });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
 
 app.post('/admin/transaction/autogopay-check/:id', requireAdmin, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id" class="edot">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -10,19 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-html{height:100%;width:100%;max-width:100%;overflow-x:hidden;background:#0a0f1e;}
+html{height:100%;width:100%;max-width:100%;overflow-x:hidden;background:#f3f5fa;}
 :root{
-    --bg-main:#0a0f1e;
-    --bg-card:#111827;
-    --bg-hover:#1a2235;
-    --border:rgba(255,255,255,0.07);
-    --border-md:rgba(255,255,255,0.12);
-    --blue:#a855f7;
-    --blue-dim:rgba(124,47,214,0.12);
-    --green:#22c55e;
-    --text-1:#f1f5f9;
-    --text-2:#94a3b8;
-    --text-3:#475569;
+    --bg-main:#f3f5fa;--bg-card:#fff;--bg-hover:#f1f5fb;--border:#e6eaf3;--border-md:#d5dcea;--blue:#2563eb;--blue-dim:rgba(37,99,235,.10);--green:#16a34a;--text-1:#0f172a;--text-2:#475569;--text-3:#94a3b8;
 }
 body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1);min-height:100dvh;width:100%;max-width:100%;overflow-x:hidden;position:relative;padding-bottom:40px;-webkit-font-smoothing:antialiased;}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -31,8 +21,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1
 .fade-in-up{animation:fadeInUp .3s ease-out both;}
 .animate-spin{animation:spin 1s linear infinite;}
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;}
-.hm-input{width:100%;padding:10px 14px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid var(--border-md);color:var(--text-1);font-size:13px;transition:border-color .15s;font-family:'Inter',sans-serif;}
-.hm-input:focus{outline:none;border-color:rgba(124,47,214,.5);background:rgba(124,47,214,.05);}
+.hm-input{width:100%;padding:10px 14px;border-radius:8px;background:#fff;border:1px solid var(--border-md);color:var(--text-1);font-size:13px;transition:border-color .15s;font-family:'Inter',sans-serif;}
+.hm-input:focus{outline:none;border-color:#2563eb;background:#fff;}
 .benefit-row{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
 .benefit-row:last-child{border-bottom:none;}
 .btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--blue);color:#fff;font-weight:700;font-size:13px;border-radius:8px;cursor:pointer;border:none;transition:opacity .15s;}
@@ -43,25 +33,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1
 .toast-success{border-color:rgba(34,197,94,.35);color:#4ade80;}
 .toast-error{border-color:rgba(239,68,68,.35);color:#f87171;}
 </style>
+<%- include('../partials/edot-theme') %>
 </head>
 <body>
 <div id="toast-wrap"></div>
 
 <!-- NAVBAR -->
-<nav style="position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(10,15,30,.96);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);">
-    <div style="max-width:640px;margin:0 auto;padding:0 16px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;height:56px;">
-            <a href="/" style="display:flex;align-items:center;text-decoration:none;">
-                <img src="/uploads/logo-lockup.png" alt="<%= settings.siteName %>" style="height:30px;width:auto;object-fit:contain;">
-            </a>
-            <a href="/" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);padding:6px 12px;border-radius:8px;border:1px solid var(--border);text-decoration:none;" onmouseover="this.style.color='var(--text-1)';this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.color='var(--text-2)';this.style.background='transparent'">
-                <iconify-icon icon="mdi:arrow-left" style="font-size:14px;"></iconify-icon> Kembali
-            </a>
-        </div>
-    </div>
-</nav>
+<header class="edot-header"><div class="edot-header-in" style="max-width:640px;">
+    <%- include('../partials/edot-brand') %>
+    <a href="/" class="edot-hbtn" style="margin-left:auto;width:auto;padding:0 12px;gap:6px;font-size:12px;font-weight:700;text-decoration:none;"><iconify-icon icon="mdi:arrow-left" style="font-size:15px;"></iconify-icon> Kembali</a>
+</div></header>
 
-<div style="min-height:100dvh;padding-top:64px;padding-bottom:40px;padding-left:16px;padding-right:16px;">
+<div style="min-height:100dvh;padding-top:16px;padding-bottom:40px;padding-left:16px;padding-right:16px;">
 <div style="max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px;">
 
 <!-- ── HERO ── -->

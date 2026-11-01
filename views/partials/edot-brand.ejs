@@ -1,0 +1,10 @@
+<%
+const __sn = String((typeof settings !== 'undefined' && settings && settings.siteName) || 'RYAN NEW ERA').trim();
+const __sp = __sn.split(/\s+/);
+const __b1 = __sp[0] || 'RYAN';
+const __b2 = __sp.slice(1).join(' ');
+%>
+<a href="/" class="edot-brand">
+  <span class="edot-logo"><%= __b1.charAt(0).toUpperCase() %></span>
+  <span class="edot-brand-txt"><b><%= __b1.toUpperCase() %></b><% if (__b2) { %><i><%= __b2.toUpperCase() %></i><% } %></span>
+</a>

@@ -1,0 +1,36 @@
+<%
+const __fs = (typeof settings !== 'undefined' && settings) ? settings : {};
+const __c = __fs.contact || {};
+%>
+<footer class="edot-footer">
+  <div class="edot-footer-in">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;">
+      <div style="grid-column:1/-1;">
+        <%- include('edot-brand') %>
+        <p style="font-size:12px;color:#64748b;line-height:1.65;margin:12px 0;max-width:520px;"><%= __fs.about ? String(__fs.about).substring(0,160) + (String(__fs.about).length > 160 ? '...' : '') : 'Platform key mod menu premium terpercaya. Proses otomatis 24 jam, pembayaran QRIS, key langsung dikirim.' %></p>
+        <div style="display:flex;gap:8px;">
+          <% if (__c.whatsapp) { %><a class="edot-soc" target="_blank" rel="noopener" href="https://wa.me/<%= String(__c.whatsapp).replace(/\D/g,'') %>" aria-label="WhatsApp"><iconify-icon icon="mdi:whatsapp" style="font-size:18px;color:#16a34a;"></iconify-icon></a><% } %>
+          <% if (__c.waChannel) { %><a class="edot-soc" target="_blank" rel="noopener" href="<%= __c.waChannel %>" aria-label="Saluran"><iconify-icon icon="mdi:broadcast" style="font-size:18px;color:#16a34a;"></iconify-icon></a><% } %>
+          <% if (__c.waGroup) { %><a class="edot-soc" target="_blank" rel="noopener" href="<%= __c.waGroup %>" aria-label="Grup"><iconify-icon icon="mdi:account-group" style="font-size:18px;color:#2563eb;"></iconify-icon></a><% } %>
+          <% if (__c.telegram) { %><a class="edot-soc" target="_blank" rel="noopener" href="https://t.me/<%= __c.telegram %>" aria-label="Telegram"><iconify-icon icon="mdi:telegram" style="font-size:18px;color:#2563eb;"></iconify-icon></a><% } %>
+        </div>
+      </div>
+      <div>
+        <h4>Menu</h4>
+        <a class="fl" href="/">Beranda</a>
+        <a class="fl" href="/produk">Daftar Harga</a>
+        <a class="fl" href="/invoice">Cek Order</a>
+      </div>
+      <div>
+        <h4>Lainnya</h4>
+        <a class="fl" href="/leaderboard">Top Pembeli</a>
+        <% if (__fs.resellerEnabled !== false) { %><a class="fl" href="/reseller">Jadi Reseller</a><% } %>
+        <a class="fl" href="/register">Daftar Akun</a>
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <p style="font-size:11px;font-weight:600;color:#94a3b8;margin:0;">&copy; 2026 <%= __fs.siteName || 'RYAN NEW ERA' %>. All rights reserved.</p>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#16a34a;"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e;"></span> Layanan Online</div>
+    </div>
+  </div>
+</footer>

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<% const __edot = !/^\/admin/.test(typeof reqPath !== 'undefined' ? reqPath : '/'); %>
+<html lang="id"<%- __edot ? ' class="edot"' : '' %>>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' — ' : '' %><%= settings?.siteName || 'RYAN NEW ERA' %></title>
     <meta name="description" content="<%= settings?.about || 'RYAN NEW ERA - Platform Digital Terpercaya' %>">
-    <meta name="theme-color" content="#09040f">
+    <meta name="theme-color" content="<%= __edot ? '#ffffff' : '#09040f' %>">
     <link rel="icon" type="image/png" href="/uploads/favicon-gn.png">
     <link rel="apple-touch-icon" href="/uploads/favicon-gn.png">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -365,6 +366,7 @@
             --glow-color:  rgba(124,47,214,0.1);
         }
     </style>
+<% if (__edot) { %><%- include('partials/edot-theme') %><% } %>
 </head>
 <body class="font-inter">
     <div id="toast-container"></div>
@@ -437,7 +439,7 @@
             <!-- Header -->
             <div class="flex items-center justify-between p-4" style="border-bottom:1px solid var(--border);">
                 <div class="flex items-center gap-2">
-                    <img src="/uploads/logo-lockup.png" alt="<%= settings?.siteName || 'RYAN NEW ERA' %>" style="height:32px;width:auto;object-fit:contain;flex-shrink:0;">
+                    <% if (__edot) { %><%- include('partials/edot-brand') %><% } else { %><img src="/uploads/logo-lockup.png" alt="RYAN NEW ERA" style="height:32px;width:auto;object-fit:contain;"><% } %>
                 </div>
                 <button onclick="closeMenu()" class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:rgba(255,255,255,.05);border:1px solid var(--border);">
                     <iconify-icon icon="mdi:close" style="color:var(--text-2);"></iconify-icon>
@@ -650,7 +652,7 @@
                 <div class="flex-1 min-w-0">
                     <div class="font-semibold text-sm truncate" style="color:var(--text-1);">${p.name}</div>
                     <div class="text-xs mt-0.5" style="color:var(--text-3);">${p.category||''}</div>
-                    <div class="text-xs font-bold mt-0.5" style="color:var(--blue);">${p.items?.[0]?'Rp '+p.items[0].p.toLocaleString('id-ID'):''}</div>
+                    <div class="text-xs font-bold mt-0.5" style="color:var(--blue);">${(location.pathname!=='/'&&p.items?.[0])?'Rp '+p.items[0].p.toLocaleString('id-ID'):''}</div>
                 </div>
                 <iconify-icon icon="mdi:chevron-right" style="color:var(--text-3);"></iconify-icon>
             </a>`).join('');

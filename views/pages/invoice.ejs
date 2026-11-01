@@ -2,20 +2,8 @@
 const pageTitle = 'Cek Pesanan';
 %>
 
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-[#0d0d20]/95 backdrop-blur-md border-b border-white/5">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="flex items-center justify-between h-16">
-            <a href="/" class="flex items-center">
-                <img src="/uploads/logo-lockup.png" alt="<%= settings.siteName || 'RYAN NEW ERA' %>" class="h-10 w-auto object-contain">
-            </a>
-            <a href="/" class="text-xs font-medium text-zinc-400 hover:text-white transition-colors">
-                <iconify-icon icon="mdi:arrow-left" class="text-sm"></iconify-icon> Kembali
-            </a>
-        </div>
-    </div>
-</nav>
-
-<div class="min-h-screen pt-20 pb-10 px-4">
+<%- include('../partials/edot-header') %>
+<div class="min-h-screen pt-4 pb-10 px-4">
     <div class="max-w-lg mx-auto">
         <div class="bg-[#0a1435] rounded-xl border border-white/10 shadow-2xl overflow-hidden">
             <div class="flex items-center justify-between px-5 py-4 border-b border-white/5">

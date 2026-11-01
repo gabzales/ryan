@@ -1,0 +1,14 @@
+<%
+const __bp = (typeof reqPath !== 'undefined') ? reqPath : '/';
+const __bu = (typeof user !== 'undefined' && user) ? user : null;
+%>
+<nav class="edot-bnav" aria-label="Navigasi">
+  <a href="/" class="<%= __bp === '/' ? 'on' : '' %>"><iconify-icon icon="mdi:home-variant"></iconify-icon>Beranda</a>
+  <a href="/produk" class="<%= __bp.startsWith('/produk') ? 'on' : '' %>"><iconify-icon icon="mdi:tag-text"></iconify-icon>Harga</a>
+  <a href="/invoice" class="<%= __bp.startsWith('/invoice') ? 'on' : '' %>"><iconify-icon icon="mdi:receipt-text-check"></iconify-icon>Cek Order</a>
+  <% if (__bu) { %>
+  <a href="/dashboard" class="<%= __bp.startsWith('/dashboard') ? 'on' : '' %>"><iconify-icon icon="mdi:account-circle"></iconify-icon>Akun</a>
+  <% } else { %>
+  <a href="/login" class="<%= (__bp.startsWith('/login')||__bp.startsWith('/register')) ? 'on' : '' %>"><iconify-icon icon="mdi:login-variant"></iconify-icon>Masuk</a>
+  <% } %>
+</nav>

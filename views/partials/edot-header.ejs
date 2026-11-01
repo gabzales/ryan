@@ -1,0 +1,26 @@
+<%
+const __u = (typeof user !== 'undefined' && user) ? user : null;
+const __p = (typeof reqPath !== 'undefined') ? reqPath : '/';
+%>
+<header class="edot-header" id="navbar">
+  <div class="edot-header-in">
+    <%- include('edot-brand') %>
+    <nav class="edot-hnav">
+      <a href="/" class="<%= __p === '/' ? 'on' : '' %>">Beranda</a>
+      <a href="/produk" class="<%= __p.startsWith('/produk') ? 'on' : '' %>">Daftar Harga</a>
+      <a href="/invoice" class="<%= __p.startsWith('/invoice') ? 'on' : '' %>">Cek Order</a>
+      <% if (typeof settings !== 'undefined' && settings.resellerEnabled !== false) { %><a href="/reseller">Reseller</a><% } %>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+      <button type="button" class="edot-hbtn" onclick="openSearch()" aria-label="Cari"><iconify-icon icon="mdi:magnify" style="font-size:20px;"></iconify-icon></button>
+      <% if (!__u) { %>
+        <a href="/login" class="edot-login"><iconify-icon icon="mdi:login-variant" style="font-size:15px;"></iconify-icon> Masuk</a>
+      <% } else { %>
+        <a href="/dashboard" class="edot-hbtn" title="<%= __u.username %>" style="width:auto;padding:0 11px;gap:6px;font-size:12px;font-weight:800;color:#2563eb;background:#eef3ff;border-color:#d6e2fd;">
+          <iconify-icon icon="mdi:account-circle" style="font-size:18px;"></iconify-icon><span style="max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= __u.username %></span>
+        </a>
+      <% } %>
+      <button type="button" class="edot-hbtn" onclick="openMenu()" aria-label="Menu"><iconify-icon icon="mdi:menu" style="font-size:21px;"></iconify-icon></button>
+    </div>
+  </div>
+</header>

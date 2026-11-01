@@ -500,6 +500,11 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                     <iconify-icon icon="mdi:stethoscope"></iconify-icon> Cek AutoGopay
                 </button>
                 <% } %>
+                <% if(t.status !== 'done' && !t.isStatic && t.type !== 'reseller' && t.type !== 'deposit'){ %>
+                <button onclick="markManualDone('<%= t.id %>')" id="trx-manual-<%= t.id %>" class="py-1 px-3 text-[10px] rounded-lg font-bold bg-amber-500/15 border border-amber-500/40 text-amber-300" title="Key sudah kamu kasih manual lewat WA — tandai selesai tanpa kirim key lagi">
+                    <iconify-icon icon="mdi:check-all"></iconify-icon> Selesai Manual
+                </button>
+                <% } %>
                 <button onclick="deleteTransaction('<%= t.id %>')" class="btn-danger py-1 px-3 text-[10px]">
                     <iconify-icon icon="mdi:trash-can"></iconify-icon>
                 </button>
@@ -2828,6 +2833,17 @@ async function agpSyncAll() {
     if (r.finalized.length || r.expired) location.reload();
 }
 
+async function markManualDone(id) {
+    if (!confirm('Tandai selesai MANUAL?\n\nPakai ini hanya kalau key SUDAH kamu kirim sendiri ke pembeli (mis. lewat WA). Sistem TIDAK akan mengirim / mengambil key dari stok lagi.')) return;
+    const d = await api('/admin/transaction/mark-manual/' + id, {});
+    if (!d.success) { toast(d.message || 'Gagal', 'error'); return; }
+    toast('Ditandai selesai (manual)', 'success');
+    const badge = document.getElementById('trx-status-badge-' + id);
+    if (badge) { badge.className = 'badge badge-done'; badge.textContent = 'Done'; }
+    ['trx-confirm-', 'trx-manual-', 'agp-btn-'].forEach(p => { const b = document.getElementById(p + id); if (b) b.remove(); });
+    const card = document.querySelector('[data-trx-id="' + id + '"]');
+    if (card) { card.setAttribute('data-status', 'done'); card.setAttribute('data-outofstock', ''); }
+}
 // ── KONFIRMASI TRANSAKSI ──
 async function confirmTransaction(id) {
     if (!confirm('Konfirmasi pembayaran transaksi ini?')) return;

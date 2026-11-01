@@ -38,20 +38,8 @@ const pageTitle = 'Beli ' + product.name;
 </style>
 
 <!-- NAVBAR -->
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300" style="background:rgba(10,15,30,0.96);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);">
-    <div class="max-w-3xl mx-auto px-4">
-        <div class="flex items-center justify-between h-14">
-            <a href="/" class="flex items-center" style="text-decoration:none;">
-                <img src="/uploads/logo-lockup.png" alt="<%= settings?.siteName || 'RYAN NEW ERA' %>" class="h-9 w-auto object-contain flex-shrink-0">
-            </a>
-            <a href="/" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors" style="color:var(--text-2);border:1px solid var(--border);" onmouseover="this.style.color='var(--text-1)';this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.color='var(--text-2)';this.style.background='transparent'">
-                <iconify-icon icon="mdi:arrow-left" class="text-sm"></iconify-icon> Kembali
-            </a>
-        </div>
-    </div>
-</nav>
-
-<div class="min-h-screen pt-16 pb-8 px-4">
+<%- include('../partials/edot-header') %>
+<div class="min-h-screen pt-4 pb-8 px-4">
 <div class="max-w-3xl mx-auto space-y-4">
 
     <!-- ── PRODUCT HERO (box-art besar, ala vipibmstore) ── -->
@@ -88,8 +76,8 @@ const pageTitle = 'Beli ' + product.name;
 
             <!-- Nama produk overlay bawah -->
             <div class="absolute left-4 right-4 bottom-3.5">
-                <h1 class="text-lg font-black text-white leading-tight" style="text-shadow:0 2px 10px rgba(0,0,0,.7);"><%= product.name %></h1>
-                <div class="text-[10px] text-white/60 mt-0.5" style="text-shadow:0 1px 6px rgba(0,0,0,.7);">
+                <h1 class="text-lg font-black text-white keep-white leading-tight" style="text-shadow:0 2px 10px rgba(0,0,0,.7);"><%= product.name %></h1>
+                <div class="text-[10px] text-white/60 keep-white mt-0.5" style="text-shadow:0 1px 6px rgba(0,0,0,.7);">
                     v<%= product.version || '1.0' %> · Terjual <%= (product.sold||0).toLocaleString('id-ID') %>
                 </div>
             </div>

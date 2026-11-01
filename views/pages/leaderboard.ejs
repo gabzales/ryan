@@ -46,19 +46,7 @@ const pageTitle = 'Leaderboard';
 .trxcount{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:900;background:linear-gradient(135deg,#c084fc,#d8b4fe);-webkit-background-clip:text;-webkit-text-fill-color:transparent;flex-shrink:0;}
 </style>
 
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-[#0d0d20]/95 backdrop-blur-md border-b border-white/5 transition-all duration-300">
-    <div class="max-w-4xl mx-auto px-4">
-        <div class="flex items-center justify-between h-14">
-            <a href="/" class="flex items-center">
-                <img src="/uploads/logo-lockup.png" alt="<%= settings.siteName || 'RYAN NEW ERA' %>" class="h-10 w-auto object-contain">
-            </a>
-            <a href="/" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5">
-                <iconify-icon icon="mdi:arrow-left" class="text-sm"></iconify-icon> Kembali
-            </a>
-        </div>
-    </div>
-</nav>
-
+<%- include('../partials/edot-header') %>
 <div class="min-h-screen pt-14 pb-10">
     <!-- HERO -->
     <div class="relative overflow-hidden" style="background:linear-gradient(135deg,rgba(124,47,214,.1),rgba(124,47,214,.07),rgba(251,191,36,.05));">

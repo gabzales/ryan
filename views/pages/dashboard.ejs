@@ -2,23 +2,8 @@
 const pageTitle = 'Dashboard';
 %>
 
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-[#09040f]/95 backdrop-blur-md border-b border-indigo-500/10">
-    <div class="max-w-3xl mx-auto px-4">
-        <div class="flex items-center justify-between h-14">
-            <a href="/" class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center">
-                    <iconify-icon icon="mdi:view-dashboard" class="text-white text-sm"></iconify-icon>
-                </div>
-                <span class="font-bold text-sm font-bold shimmer-text">Dashboard</span>
-            </a>
-            <a href="/" class="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-all">
-                <iconify-icon icon="mdi:arrow-left" class="text-sm"></iconify-icon> Kembali
-            </a>
-        </div>
-    </div>
-</nav>
-
-<div class="min-h-screen pt-16 pb-20 px-4">
+<%- include('../partials/edot-header') %>
+<div class="min-h-screen pt-4 pb-20 px-4">
 <div class="max-w-3xl mx-auto">
 
     <!-- Profile Greeting -->
