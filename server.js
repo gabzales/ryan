@@ -308,7 +308,12 @@ app.use((req, res, next) => {
 
 // Versi cache-busting untuk /tw.css (CSS statis hasil build Tailwind)
 let CSS_VER = '1';
-try { CSS_VER = String(Math.floor(require('fs').statSync(path.join(__dirname, 'public/tw.css')).mtimeMs)); } catch (e) { /* belum dibuild */ }
+let TW_CSS = '';
+try {
+  const _twp = path.join(__dirname, 'public/tw.css');
+  CSS_VER = String(Math.floor(require('fs').statSync(_twp).mtimeMs));
+  TW_CSS = require('fs').readFileSync(_twp, 'utf8').replace(/<\/style/gi, '<\\/style'); // di-inline ke <head>: tidak ada request CSS yang memblokir render
+} catch (e) { /* belum dibuild */ }
 
 // Inject settings + isAdmin ke semua view otomatis
 app.use(async (req, res, next) => {
@@ -342,6 +347,7 @@ app.use(async (req, res, next) => {
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
   res.locals.reqPath = req.path || '/';
   res.locals.cssVer = CSS_VER;
+  res.locals.twCss = TW_CSS;
   res.locals.user = getSessionUser(req);
   next();
 });
@@ -2489,7 +2495,10 @@ app.get('/buy/:id', requireAuth, async (req, res) => {
   // Akibatnya: harga baru yang diedit admin tidak pernah muncul ke customer
   // sampai instance itu kebetulan cold-start ulang. readFresh() selalu ambil
   // data terbaru langsung dari Supabase, jadi update harga langsung akurat.
-  const products = await readFresh('products.json');
+  // Tampilan halaman beli cukup pakai cache 8 detik (readSmart) -- jauh lebih cepat daripada
+  // tarik seluruh products.json dari Supabase tiap buka halaman. Harga & stok TETAP diverifikasi ulang
+  // pakai readFresh saat checkout (/create-order, /wallet/buy), jadi tidak ada risiko salah harga.
+  const products = await readSmart('products.json');
   const product = products.find(p => p.id === req.params.id);
 
   if (!product || product.status !== 'active') {

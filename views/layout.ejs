@@ -9,7 +9,7 @@
     <meta name="theme-color" content="<%= __edot ? '#ffffff' : '#09040f' %>">
     <link rel="icon" type="image/png" href="/uploads/favicon-gn.png">
     <link rel="apple-touch-icon" href="/uploads/favicon-gn.png">
-    <link rel="stylesheet" href="/tw.css?v=<%= typeof cssVer !== 'undefined' ? cssVer : '1' %>">
+    <% if (typeof twCss !== 'undefined' && twCss) { %><style id="tw-inline"><%- twCss %></style><% } else { %><link rel="stylesheet" href="/tw.css?v=<%= typeof cssVer !== 'undefined' ? cssVer : '1' %>"><% } %>
     <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -367,8 +367,25 @@
         }
     </style>
 <% if (__edot) { %><%- include('partials/edot-theme') %><% } %>
+<style>#nav-bar{position:fixed;top:0;left:0;height:3px;width:0;background:linear-gradient(90deg,#2563eb,#6366f1);z-index:100000;opacity:0;pointer-events:none;transition:width .6s ease,opacity .2s;}#nav-bar.on{opacity:1;width:85%;transition:width 8s cubic-bezier(.1,.7,.2,1),opacity .1s;}</style>
 </head>
 <body class="font-inter">
+<div id="nav-bar"></div>
+<script>
+(function () {
+  var bar = document.getElementById('nav-bar');
+  function start() { if (!bar) return; bar.classList.remove('on'); void bar.offsetWidth; bar.classList.add('on'); }
+  function stop() { if (bar) bar.classList.remove('on'); }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a || e.defaultPrevented || a.target === '_blank' || e.metaKey || e.ctrlKey) return;
+    var h = a.getAttribute('href') || '';
+    if (h.charAt(0) !== '/' || h.indexOf('//') === 0) return;
+    start();
+  }, true);
+  window.addEventListener('pageshow', stop);
+})();
+</script>
     <div id="toast-container"></div>
     <div id="purchase-notif-container"></div>
 
