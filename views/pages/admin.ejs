@@ -1236,6 +1236,14 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             </div>
             <form id="autogopayForm" class="space-y-3" autocomplete="off">
                 <div>
+                    <div class="setting-row-label">Provider AutoGopay</div>
+                    <div class="flex gap-2">
+                        <button type="button" id="agpProvNet" onclick="setAgpProvider('net')" class="flex-1 py-2 rounded-lg text-[11px] font-bold border">autogopay.net</button>
+                        <button type="button" id="agpProvSite" onclick="setAgpProvider('site')" class="flex-1 py-2 rounded-lg text-[11px] font-bold border">autogopay.site</button>
+                    </div>
+                    <div class="text-[10px] mt-1 text-zinc-500" id="agpProvHint"></div>
+                </div>
+                <div>
                     <div class="setting-row-label">API Key</div>
                     <input type="text" name="apiKey" autocomplete="off" value="<%= settings.autogopay?.apiKey||'' %>" class="hm-input font-mono text-xs" placeholder="iak_xxxxxx / agp_xxxxxx">
                 </div>
@@ -2618,6 +2626,29 @@ document.getElementById('stenlyForm').addEventListener('submit', async function(
     if (d.success) toast('Pengaturan stenly.id disimpan!','success');
     else toast(d.message, 'error');
 });
+
+// ── Pilih provider AutoGopay (net / site): ganti Base URL otomatis, variannya terdeteksi dari Base URL ──
+function agpCurrentProvider() {
+    const u = (document.querySelector('#autogopayForm [name=baseUrl]').value || '').toLowerCase();
+    return /autogopay\.net/.test(u) ? 'net' : (/autogopay\.site/.test(u) ? 'site' : 'net');
+}
+function paintAgpProvider() {
+    const cur = agpCurrentProvider();
+    const on = 'flex-1 py-2 rounded-lg text-[11px] font-bold border bg-purple-500/20 border-indigo-500/50 text-purple-300';
+    const off = 'flex-1 py-2 rounded-lg text-[11px] font-bold border bg-white/3 border-white/10 text-zinc-500';
+    document.getElementById('agpProvNet').className = cur === 'net' ? on : off;
+    document.getElementById('agpProvSite').className = cur === 'site' ? on : off;
+    document.getElementById('agpProvHint').textContent = cur === 'net'
+        ? 'autogopay.net: API Key iak_..., wajib isi Webhook Secret.'
+        : 'autogopay.site: API Key agp_..., Webhook Secret dikosongkan (webhook divalidasi lewat header X-Signature + API Key).';
+}
+function setAgpProvider(v) {
+    const f = document.querySelector('#autogopayForm [name=baseUrl]');
+    f.value = v === 'site' ? 'https://v1-gateway.autogopay.site' : 'https://autogopay.net';
+    paintAgpProvider();
+}
+document.querySelector('#autogopayForm [name=baseUrl]').addEventListener('input', paintAgpProvider);
+paintAgpProvider();
 
 document.getElementById('autogopayForm').addEventListener('submit', async function(e) {
     e.preventDefault();

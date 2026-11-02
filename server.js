@@ -1015,7 +1015,7 @@ function getAutogopayCreds(settings) {
 
 // Satu helper request untuk semua endpoint. Selalu resolve dengan
 // { statusCode, json, raw } — yang memutuskan error/tidak adalah pemanggil.
-function autogopayRequest(creds, method, apiPath, bodyObj) {
+function autogopayRequest(creds, method, apiPath, bodyObj, timeoutMs) {
   return new Promise((resolve, reject) => {
     if (!creds.apiKey) return reject(new Error('API Key AutoGopay belum dikonfigurasi'));
     let url;
@@ -1030,7 +1030,7 @@ function autogopayRequest(creds, method, apiPath, bodyObj) {
 
     const req = https.request({
       hostname: url.hostname, port: url.port || 443,
-      path: url.pathname + url.search, method, headers, timeout: 15000
+      path: url.pathname + url.search, method, headers, timeout: timeoutMs || 15000
     }, (res) => {
       let data = '';
       res.on('data', c => data += c);
@@ -1095,7 +1095,7 @@ const checkPaymentStatusAutogopay = async (orderId, amount, settings, txHint) =>
     if (!tx) { const transactions = await readFresh('transactions.json'); tx = transactions.find(t => t.orderId === orderId); }
     const gwId = tx?.gatewayRef?.transactionId;
     if (!gwId) throw new Error(`AutoGopay: transaction_id untuk order ${orderId} tidak tersimpan (transaksi dibuat sebelum update API / lewat varian lain)`);
-    const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId });
+    const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId }, 8000);
     const j = r.json || {};
     const d = j.data || j;
     const raw = d.transaction_status || d.status || j.status;
@@ -1111,7 +1111,7 @@ const checkPaymentStatusAutogopay = async (orderId, amount, settings, txHint) =>
     return { status };
   }
   // varian net
-  const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/${encodeURIComponent(orderId)}`);
+  const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/${encodeURIComponent(orderId)}`, null, 8000);
   const d = r.json?.data;
   if (!(r.statusCode >= 200 && r.statusCode < 300) || !r.json?.success || !d?.status) {
     throw new Error(r.json?.message || `AutoGopay error (HTTP ${r.statusCode})`);
@@ -3273,7 +3273,7 @@ async function autogopayRawStatus(creds, tx) {
   if (creds.variant === 'site') {
     const gwId = tx.gatewayRef?.transactionId;
     if (!gwId) return null;
-    const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId });
+    const r = await autogopayRequest(creds, 'POST', '/qris/status', { transaction_id: gwId }, 8000);
     return { r, request: `POST ${joinUrlPath(creds.baseUrl, '/qris/status')}  {"transaction_id":"${gwId}"}` };
   }
   const r = await autogopayRequest(creds, 'GET', `/api/v1/payment/status/${encodeURIComponent(tx.orderId)}`);
