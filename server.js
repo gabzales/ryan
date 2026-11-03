@@ -3152,7 +3152,7 @@ app.post('/webhook/autogopay', async (req, res) => {
     const creds = getAutogopayCreds(settings);
     const webhookSecret = String(settings.autogopay?.webhookSecret || process.env.AUTOGOPAY_WEBHOOK_SECRET || '').trim();
     const body = req.body || {};
-    if (!req.rawBody) { await logWebhook('autogopay', { result: 'no_raw_body' }); return res.status(401).send('Unauthorized'); }
+    if (!req.rawBody) { await logWebhook('autogopay', { result: 'no_raw_body' }); return res.status(200).json({ success: true, message: 'ignored' }); }
 
     // Varian dikenali dari bentuk webhook-nya (bukan dari setting) supaya tetap jalan
     // walau admin baru saja pindah Base URL dan masih ada transaksi varian lama.
@@ -3166,19 +3166,22 @@ app.post('/webhook/autogopay', async (req, res) => {
       variant = 'site';
       if (creds.apiKey) signatureOk = hmacMatches(creds.apiKey, req.rawBody, headerSig);
     } else {
+      // Tanpa signature = bukan webhook pembayaran (mis. ping verifikasi URL dari dashboard AutoGopay).
+      // Tidak ada yang diproses; balas JSON {success:true} supaya verifikasi callback lolos.
       await logWebhook('autogopay', { result: 'no_secret_or_signature' });
-      return res.status(401).send('Unauthorized');
+      return res.status(200).json({ success: true, message: 'ignored' });
     }
     // Signature tidak cocok (mis. serialisasi JSON mereka beda dari yang kita duga) TIDAK
     // boleh bikin pembayaran nyangkut. Webhook tetap diterima kalau pembayarannya terbukti
     // lunas lewat API AutoGopay (diautentikasi API Key kita) — payload webhook tidak dipercaya.
     if (!signatureOk) {
-      let apiVerified = false;
+      let apiVerified = false, hadCandidate = false;
       try {
         const txs = await readFresh('transactions.json');
         const cand = variant === 'net'
           ? txs.find(t => t.orderId === body.reference)
           : txs.find(t => t.gatewayRef?.transactionId && t.gatewayRef.transactionId === String(body.transaction?.transaction_id || ''));
+        hadCandidate = !!cand;
         if (cand && !cand.isStatic && cand.status !== 'done' && (!cand.paymentGateway || cand.paymentGateway === 'autogopay')) {
           const chk = await checkPaymentStatusAutogopay(cand.orderId, cand.price, settings, cand);
           apiVerified = ['success', 'settlement', 'paid'].includes(chk.status);
@@ -3188,7 +3191,9 @@ app.post('/webhook/autogopay', async (req, res) => {
       }
       if (!apiVerified) {
         await logWebhook('autogopay', { result: 'invalid_signature', variant, orderId: body?.reference || body?.transaction?.order_id || null, hasWebhookSecret: !!webhookSecret, bodyPreview: String(req.rawBody).slice(0, 300) });
-        return res.status(401).send('Invalid signature');
+        // Tanpa transaksi yang cocok = ping/tes (tidak ada yang diproses) -> 200 supaya verifikasi URL lolos.
+        if (!hadCandidate) return res.status(200).json({ success: true, message: 'ignored' });
+        return res.status(401).json({ success: false, message: 'Invalid signature' });
       }
       await logWebhook('autogopay', { result: 'signature_mismatch_but_api_verified', variant, orderId: body?.reference || body?.transaction?.order_id || null });
     }
@@ -3197,7 +3202,7 @@ app.post('/webhook/autogopay', async (req, res) => {
     let transaction, status, webhookAmount, logId;
     if (variant === 'net') {
       logId = body.reference;
-      if (!logId || typeof logId !== 'string') { await logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).send('OK'); }
+      if (!logId || typeof logId !== 'string') { await logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).json({ success: true }); }
       transaction = transactions.find(t => t.orderId === logId);
       status = String(body.status || '').toLowerCase();
       webhookAmount = body.amount;
@@ -3206,7 +3211,7 @@ app.post('/webhook/autogopay', async (req, res) => {
       const gwTrxId = trx.transaction_id ? String(trx.transaction_id) : null;
       const gwOrderId = trx.order_id ? String(trx.order_id) : null;
       logId = gwOrderId || gwTrxId;
-      if (!logId) { await logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).send('OK'); }
+      if (!logId) { await logWebhook('autogopay', { result: 'no_reference', event: body.event || null }); return res.status(200).json({ success: true }); }
       transaction = transactions.find(t =>
         (gwTrxId && t.gatewayRef?.transactionId === gwTrxId) ||
         (gwOrderId && t.gatewayRef?.orderId === gwOrderId));
@@ -3214,14 +3219,14 @@ app.post('/webhook/autogopay', async (req, res) => {
       status = ['paid', 'success', 'settlement'].includes(st) ? 'success' : (['expire', 'expired', 'cancel', 'cancelled', 'failed'].includes(st) ? 'expired' : st);
       webhookAmount = trx.amount;
     }
-    if (!transaction) { await logWebhook('autogopay', { result: 'transaction_not_found', variant, orderId: logId }); return res.status(200).send('OK'); }
+    if (!transaction) { await logWebhook('autogopay', { result: 'transaction_not_found', variant, orderId: logId }); return res.status(200).json({ success: true }); }
     const order_id = transaction.orderId;
 
-    if (transaction.status === 'done') { await logWebhook('autogopay', { result: 'already_done', orderId: order_id }); return res.status(200).send('OK'); }
-    if (transaction.isStatic) { await logWebhook('autogopay', { result: 'is_static', orderId: order_id }); return res.status(200).send('OK'); }
+    if (transaction.status === 'done') { await logWebhook('autogopay', { result: 'already_done', orderId: order_id }); return res.status(200).json({ success: true }); }
+    if (transaction.isStatic) { await logWebhook('autogopay', { result: 'is_static', orderId: order_id }); return res.status(200).json({ success: true }); }
     if (transaction.paymentGateway && transaction.paymentGateway !== 'autogopay') {
       await logWebhook('autogopay', { result: 'gateway_mismatch', orderId: order_id, txGateway: transaction.paymentGateway });
-      return res.status(200).send('OK');
+      return res.status(200).json({ success: true });
     }
 
     if (status === 'success') {
@@ -3230,7 +3235,7 @@ app.post('/webhook/autogopay', async (req, res) => {
           paidAmount !== Number(transaction.price) && paidAmount !== Number(transaction.totalPayment)) {
         await logWebhook('autogopay', { result: 'amount_mismatch', orderId: order_id, webhookAmount, price: transaction.price, totalPayment: transaction.totalPayment });
         console.error(`[webhook-autogopay] amount tidak cocok untuk ${order_id}: webhook=${webhookAmount} price=${transaction.price} total=${transaction.totalPayment} — TIDAK di-finalize, cek manual`);
-        return res.status(200).send('OK');
+        return res.status(200).json({ success: true });
       }
       await finalizeConfirmedPayment(transaction.id);
       await logWebhook('autogopay', { result: 'finalized', orderId: order_id });
@@ -3241,10 +3246,10 @@ app.post('/webhook/autogopay', async (req, res) => {
     } else {
       await logWebhook('autogopay', { result: 'status_not_handled', orderId: order_id, statusFromWebhook: status || '(kosong)' });
     }
-    res.status(200).send('OK');
+    res.status(200).json({ success: true });
   } catch (error) {
     console.error('[webhook-autogopay] error:', error.message);
-    res.status(200).send('OK');
+    res.status(200).json({ success: true });
   }
 });
 
