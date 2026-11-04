@@ -30,8 +30,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1
 .btn-primary:active{opacity:.7;transform:scale(.97);}
 #toast-wrap{position:fixed;top:14px;right:14px;z-index:9999;display:flex;flex-direction:column;gap:8px;}
 .toast-item{padding:10px 14px;border-radius:10px;background:var(--bg-card);font-size:12px;max-width:280px;border:1px solid var(--border-md);color:var(--text-1);}
-.toast-success{border-color:rgba(34,197,94,.35);color:#4ade80;}
-.toast-error{border-color:rgba(239,68,68,.35);color:#f87171;}
+.toast-success{border-color:rgba(34,197,94,.45);color:#15803d;}
+.toast-error{border-color:rgba(239,68,68,.45);color:#b91c1c;}
 </style>
 <%- include('../partials/edot-theme') %>
 </head>
@@ -143,21 +143,27 @@ body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1
     <% } else { %>
     <%
       const waNumber = (settings.contact?.whatsapp || '').replace(/\D/g, '');
-      const waMsg = encodeURIComponent(
-        'Halo min, saya mau daftar Reseller VIP di ' + (settings.siteName || 'RYAN NEW ERA') + ' 🙏\n\n' +
-        'Nama akun: ' + (user.username || '-') + '\n' +
-        'Email: ' + (user.email || '-') + '\n\n' +
-        'Mohon diproses ya, terima kasih!'
-      );
     %>
-    <a href="https://wa.me/<%= waNumber %>?text=<%= waMsg %>" target="_blank" rel="noopener"
-       class="btn-primary" style="width:100%;padding:13px;font-size:14px;border-radius:10px;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#16a34a,#15803d);">
-        <iconify-icon icon="mdi:whatsapp" style="font-size:20px;"></iconify-icon>
-        Daftar via WhatsApp Admin
-    </a>
-    <p style="font-size:11px;color:var(--text-3);text-align:center;margin-top:10px;">
-      Kamu akan diarahkan ke WhatsApp admin untuk konfirmasi &amp; aktivasi reseller.
-    </p>
+    <div id="rsPayStep1">
+        <button id="rsPayBtn" onclick="rsStartPay()" class="btn-primary" style="width:100%;padding:13px;font-size:14px;border-radius:10px;">
+            <iconify-icon icon="mdi:qrcode-scan" style="font-size:18px;"></iconify-icon> Bayar Sekarang
+        </button>
+        <p style="font-size:11px;color:var(--text-3);text-align:center;margin-top:10px;">QRIS · otomatis aktif setelah bayar, tanpa konfirmasi admin.</p>
+    </div>
+
+    <div id="rsPayStep2" style="display:none;text-align:center;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--text-3);text-transform:uppercase;margin-bottom:6px;">Batas waktu pembayaran</div>
+        <div id="rsTimer" style="font-size:30px;font-weight:900;color:#d97706;font-variant-numeric:tabular-nums;margin-bottom:14px;">15:00</div>
+        <div id="rsQrWrap" style="margin-bottom:12px;"></div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">Kode order: <strong id="rsCode" style="color:var(--text-1);font-family:monospace;">-</strong></div>
+        <div style="font-size:20px;font-weight:900;color:var(--text-1);margin-bottom:10px;" id="rsAmount"></div>
+        <div id="rsStatus" style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--text-2);margin-bottom:12px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;"></span> Menunggu pembayaran...
+        </div>
+        <div id="rsStaticNote" style="display:none;font-size:11px;color:var(--text-2);margin-bottom:10px;">QRIS ini dikonfirmasi manual oleh admin. Setelah bayar, kirim bukti lewat WhatsApp.</div>
+        <a id="rsWaBtn" href="#" target="_blank" rel="noopener" style="display:none;margin-bottom:10px;padding:11px;border-radius:10px;background:#16a34a;color:#fff;font-weight:700;font-size:13px;text-decoration:none;">Konfirmasi via WhatsApp</a>
+        <button onclick="rsCheckNow()" style="width:100%;padding:11px;border-radius:10px;border:1px solid var(--border-md);background:#fff;color:var(--text-1);font-weight:700;font-size:12px;cursor:pointer;">Saya sudah bayar, cek status</button>
+    </div>
     <% } %>
 </div>
 
@@ -167,6 +173,91 @@ body{font-family:'Inter',sans-serif;background:var(--bg-main);color:var(--text-1
 
 
 <script>
+var RS_WA = '<%= (settings.contact?.whatsapp || "").replace(/\D/g, "") %>';
+var RS_PRICE = <%= settings.resellerPrice || 50000 %>;
+var rsRef = null, rsStopped = false, rsTick = null, rsTimerI = null, rsBusy = false;
+function rsStartPay(){
+    var btn = document.getElementById('rsPayBtn');
+    if (btn.disabled) return;
+    btn.disabled = true; btn.style.opacity = '.6';
+    btn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin" style="font-size:18px;"></iconify-icon> Memproses...';
+    fetch('/reseller/join', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.success) { showToast(d.message || 'Gagal membuat pembayaran', 'error'); rsResetBtn(); return; }
+        rsShowQr(d);
+      })
+      .catch(function(){ showToast('Koneksi bermasalah, coba lagi.', 'error'); rsResetBtn(); });
+}
+function rsResetBtn(){
+    var btn = document.getElementById('rsPayBtn');
+    btn.disabled = false; btn.style.opacity = '';
+    btn.innerHTML = '<iconify-icon icon="mdi:qrcode-scan" style="font-size:18px;"></iconify-icon> Bayar Sekarang';
+}
+function rsShowQr(d){
+    rsRef = d.refId; rsStopped = false;
+    document.getElementById('rsPayStep1').style.display = 'none';
+    document.getElementById('rsPayStep2').style.display = 'block';
+    document.getElementById('rsCode').textContent = d.orderCode || '-';
+    document.getElementById('rsAmount').textContent = 'Rp ' + RS_PRICE.toLocaleString('id-ID');
+    var wrap = document.getElementById('rsQrWrap');
+    if (d.isStatic && d.qrisStaticImage) {
+        wrap.innerHTML = '<div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;border:1px solid var(--border);"><img src="'+d.qrisStaticImage+'" style="display:block;width:210px;height:210px;object-fit:contain;"></div>';
+        document.getElementById('rsStaticNote').style.display = 'block';
+        var wa = document.getElementById('rsWaBtn');
+        wa.href = 'https://wa.me/' + RS_WA + '?text=' + encodeURIComponent('Konfirmasi upgrade Reseller VIP, kode: ' + (d.orderCode||'-') + ', nominal: Rp ' + RS_PRICE.toLocaleString('id-ID'));
+        wa.style.display = 'block';
+    } else if (d.qrString) {
+        wrap.innerHTML = '<div style="background:#fff;padding:12px;border-radius:16px;display:inline-block;border:1px solid var(--border);"><img src="https://api.qrserver.com/v1/create-qr-code/?size=210x210&color=000000&bgcolor=ffffff&qzone=1&data='+encodeURIComponent(d.qrString)+'" style="display:block;width:210px;height:210px;"></div>';
+    } else {
+        wrap.innerHTML = '<p style="font-size:12px;color:var(--text-3);">QRIS belum dikonfigurasi. Hubungi admin.</p>';
+    }
+    // timer 15 menit (client-side)
+    var end = Date.now() + 15*60*1000, el = document.getElementById('rsTimer');
+    if (rsTimerI) clearInterval(rsTimerI);
+    rsTimerI = setInterval(function(){
+        var diff = end - Date.now();
+        if (diff <= 0) { clearInterval(rsTimerI); el.textContent = '00:00'; el.style.color = '#dc2626'; rsStopped = true; rsSetStatus('Waktu pembayaran habis. Muat ulang halaman untuk bikin QRIS baru.', '#dc2626'); return; }
+        var m = Math.floor(diff/60000), s = Math.floor((diff%60000)/1000);
+        el.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+        el.style.color = diff < 120000 ? '#dc2626' : '#d97706';
+    }, 1000);
+    if (d.refId && !d.isStatic) {
+        rsCheck();
+        var t0 = Date.now();
+        (function loop(){
+            if (rsStopped) return;
+            rsTick = setTimeout(async function(){
+                if (!document.hidden) await rsCheck();
+                loop();
+            }, (Date.now() - t0) < 180000 ? 6000 : 15000);
+        })();
+        document.addEventListener('visibilitychange', function(){ if (!document.hidden && !rsStopped && rsRef) rsCheck(); });
+    }
+}
+function rsSetStatus(text, color){
+    document.getElementById('rsStatus').innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+color+';display:inline-block;"></span> ' + text;
+}
+function rsCheckNow(){ rsCheck(true); }
+async function rsCheck(manual){
+    if (!rsRef || rsBusy) return;
+    rsBusy = true;
+    try {
+        var r = await fetch('/check-payment/' + rsRef);
+        var d = await r.json();
+        if (d.success && d.status === 'done') {
+            rsStopped = true; clearTimeout(rsTick); clearInterval(rsTimerI);
+            rsSetStatus('Pembayaran berhasil! Reseller VIP aktif.', '#16a34a');
+            showToast('Selamat, kamu sekarang Reseller VIP!', 'success');
+            setTimeout(function(){ location.reload(); }, 1500);
+        } else if (d.status === 'expired') {
+            rsStopped = true; clearTimeout(rsTick);
+            rsSetStatus('Pembayaran expired. Muat ulang halaman untuk bikin QRIS baru.', '#dc2626');
+        } else if (manual) {
+            showToast('Pembayaran belum terdeteksi, tunggu sebentar lalu cek lagi.', 'info');
+        }
+    } catch(e) {} finally { rsBusy = false; }
+}
 function showToast(msg, type='info') {
     const wrap = document.getElementById('toast-wrap');
     const el = document.createElement('div');
