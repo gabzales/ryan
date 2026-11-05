@@ -695,6 +695,19 @@ textarea.hm-input{resize:vertical;min-height:80px;}
     </div>
 </div>
 
+<!-- ── RESET KEY ── -->
+<div id="pane-resetkeys" class="tab-pane">
+    <div class="flex items-center justify-between mb-4">
+        <div class="section-label mb-0">Permintaan Reset Key</div>
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] text-zinc-500">Batas/hari</span>
+            <input type="number" id="rkLimitInput" min="1" max="50" class="hm-input" style="width:64px;padding:6px 8px;" value="2">
+            <button class="btn-primary" style="padding:6px 10px;font-size:11px;" onclick="saveRkLimit()">Simpan</button>
+        </div>
+    </div>
+    <div class="space-y-2" id="rkList"><div class="text-xs text-zinc-500">Memuat...</div></div>
+</div>
+
 <!-- ── VOUCHERS ── -->
 <div id="pane-vouchers" class="tab-pane">
     <div class="flex items-center justify-between mb-4">
@@ -1516,6 +1529,10 @@ textarea.hm-input{resize:vertical;min-height:80px;}
         <iconify-icon icon="mdi:ticket-percent" class="n-icon"></iconify-icon>
         <span class="n-label">Voucher</span>
     </div>
+    <div class="nav-btn" id="nav-resetkeys" onclick="switchTab('resetkeys')">
+        <iconify-icon icon="mdi:key-change" class="n-icon"></iconify-icon>
+        <span class="n-label">Reset Key</span>
+    </div>
     <div class="nav-btn" id="nav-arcade" onclick="switchTab('arcade')">
         <iconify-icon icon="mdi:dice-multiple" class="n-icon"></iconify-icon>
         <span class="n-label">Arcade</span>
@@ -1895,12 +1912,13 @@ function switchTab(name) {
     if (name === 'testimonials') loadTestimonials();
     if (name === 'keys') loadKeys();
     if (name === 'vouchers') loadVouchers();
+    if (name === 'resetkeys') loadResetKeys();
     history.replaceState(null, '', '/admin#' + name);
 }
 
 // ── HASH ROUTING: auto switch tab dari URL hash ──
 document.addEventListener('DOMContentLoaded', () => {
-    const validTabs = ['dashboard','products','transactions','users','testimonials','settings','keys','vouchers','arcade'];
+    const validTabs = ['dashboard','products','transactions','users','testimonials','settings','keys','vouchers','resetkeys','arcade'];
     const hash = window.location.hash.replace('#', '');
     if (validTabs.includes(hash)) switchTab(hash);
 });
@@ -3447,6 +3465,48 @@ async function deleteKey(id) {
 }
 
 // ═══ VOUCHER MANAGEMENT ═══
+
+async function loadResetKeys() {
+    const r = await fetch('/admin/reset-keys'); const d = await r.json();
+    if (!d.success) return;
+    document.getElementById('rkLimitInput').value = d.limit;
+    const list = document.getElementById('rkList');
+    const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    if (!d.data.length) { list.innerHTML = '<div class="text-xs text-zinc-500">Belum ada permintaan.</div>'; return; }
+    list.innerHTML = d.data.map(x => {
+        const col = x.status === 'done' ? '#4ade80' : x.status === 'rejected' ? '#f87171' : '#fbbf24';
+        const lbl = x.status === 'done' ? 'Selesai' : x.status === 'rejected' ? 'Ditolak' : 'Menunggu';
+        const wa = String(x.wa || '').replace(/\D/g, '');
+        return `<div class="card p-3" style="border:1px solid rgba(255,255,255,.08);border-radius:10px;">
+            <div class="flex items-center justify-between gap-2">
+                <div class="text-xs font-bold">${esc(x.username)} · ${esc(x.productName)}</div>
+                <span class="text-[10px] font-black" style="color:${col}">${lbl}</span>
+            </div>
+            <div class="text-[11px] mt-1" style="font-family:monospace;word-break:break-all;">${esc(x.key)}</div>
+            <div class="text-[10px] text-zinc-500 mt-1">${esc(x.time || '')} · ${esc(x.orderCode || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" style="color:#4ade80">WA</a>` : ''}</div>
+            ${x.note ? `<div class="text-[11px] text-zinc-400 mt-1">${esc(x.note)}</div>` : ''}
+            ${x.status === 'pending' ? `<div class="flex gap-2 mt-2">
+                <button class="btn-primary" style="padding:6px 12px;font-size:11px;" onclick="processResetKey('${esc(x.id)}','done')">Selesai</button>
+                <button class="btn-primary" style="padding:6px 12px;font-size:11px;background:#dc2626;" onclick="processResetKey('${esc(x.id)}','rejected')">Tolak</button>
+            </div>` : ''}
+        </div>`;
+    }).join('');
+}
+async function processResetKey(id, status) {
+    let note = '';
+    if (status === 'rejected') { note = prompt('Alasan penolakan (opsional):') || ''; }
+    const r = await fetch('/admin/reset-keys/' + id, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status, note }) });
+    const d = await r.json();
+    if (typeof showToast === 'function') showToast(d.success ? 'Tersimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    loadResetKeys();
+}
+async function saveRkLimit() {
+    const limit = document.getElementById('rkLimitInput').value;
+    const r = await fetch('/admin/reset-keys/limit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ limit }) });
+    const d = await r.json();
+    if (typeof showToast === 'function') showToast(d.success ? 'Batas disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+}
+
 async function loadVouchers() {
     const r = await fetch('/admin/vouchers');
     const d = await r.json();

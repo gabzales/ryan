@@ -508,6 +508,9 @@
                     <iconify-icon icon="mdi:package-variant-closed" style="color:var(--green);font-size:18px;"></iconify-icon> Cek Pesanan
                 </a>
                 <% if (typeof user !== 'undefined' && user && !isAdmin) { %>
+                <a href="/reset-key" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
+                    <iconify-icon icon="mdi:key-change" style="color:var(--blue);font-size:18px;"></iconify-icon> Reset Key
+                </a>
                 <a href="/dashboard" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);" onmouseover="this.style.color='var(--text-1)';this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.color='var(--text-2)';this.style.background='transparent'">
                     <iconify-icon icon="mdi:view-dashboard" style="color:var(--blue);font-size:18px;"></iconify-icon> Dashboard
                 </a>

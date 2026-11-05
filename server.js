@@ -481,7 +481,7 @@ const initDB = async () => {
     homeProductsLimit: 10
   };
 
-  const arrayFiles = ['users.json', 'products.json', 'transactions.json', 'testimonials.json', 'notifications.json', 'keyspool.json', 'vouchers.json'];
+  const arrayFiles = ['users.json', 'products.json', 'transactions.json', 'testimonials.json', 'notifications.json', 'keyspool.json', 'vouchers.json', 'resetkeys.json'];
 
   // Seed arrays only if they don't exist at all
   for (const filename of arrayFiles) {
@@ -1685,6 +1685,99 @@ app.post('/vpr-secure-panel-8x', async (req, res) => {
   });
 });
 
+
+// ── RESET KEY ──
+// Pembeli minta reset key (HWID dll) yang DIA BELI di toko ini. Provider
+// belum punya API reset, jadi permintaan masuk antrian dan diproses admin
+// (tombol Selesai / Tolak di tab "Reset Key"). Key yang tidak ada di riwayat
+// pembelian akun yang login langsung ditolak ("tidak dijual di situs ini").
+const NON_PRODUCT_TX = ['deposit', 'reseller', 'gacha', 'adjustment'];
+const wibDay = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+function resetQuota(rows, userId, settings) {
+  const limit = Math.max(1, parseInt(settings.resetKeyDailyLimit) || 2);
+  const today = wibDay();
+  const used = rows.filter(r => r.userId === userId && r.day === today && r.status !== 'rejected').length;
+  return { limit, used, left: Math.max(0, limit - used) };
+}
+function userBoughtKeys(transactions, userId) {
+  const out = [];
+  for (const t of transactions) {
+    if (t.userId !== userId || t.status !== 'done' || !t.key || NON_PRODUCT_TX.includes(t.type)) continue;
+    String(t.key).split(/[\s,;\n]+/).filter(Boolean).forEach(k => out.push({ key: k, productName: t.productName || '-', code: t.code || '', at: t.createdAt }));
+  }
+  return out;
+}
+
+app.get('/reset-key', requireAuth, async (req, res) => {
+  if (req.session.isAdmin) return res.redirect('/admin');
+  const [transactions, rows] = await Promise.all([readFresh('transactions.json'), readFresh('resetkeys.json')]);
+  const settings = res.locals.settings || readDB('settings.json');
+  const user = res.locals.user || getSessionUser(req);
+  const mine = (Array.isArray(rows) ? rows : []).filter(r => r.userId === req.session.userId);
+  res.render('pages/reset-key', {
+    settings, user,
+    keys: userBoughtKeys(transactions, req.session.userId).slice(-30).reverse(),
+    quota: resetQuota(mine, req.session.userId, settings),
+    history: mine.slice(-8).reverse()
+  });
+});
+
+app.post('/reset-key', requireAuth, async (req, res) => {
+  try {
+    if (req.session.isAdmin) return res.json({ success: false, message: 'Admin tidak perlu reset key.' });
+    const key = String(req.body.key || '').trim().slice(0, 200);
+    if (!key) return res.json({ success: false, message: 'Isi key dulu.' });
+    const uid = req.session.userId;
+    const transactions = await readFresh('transactions.json');
+    const found = userBoughtKeys(transactions, uid).find(k => k.key === key);
+    if (!found) return res.json({ success: false, message: 'Key ini tidak dibeli di situs ini (atau bukan dari akunmu), jadi tidak bisa direset di sini.' });
+    const settings = await readFresh('settings.json');
+    const rowsAll = await readFresh('resetkeys.json');
+    const rows = Array.isArray(rowsAll) ? rowsAll : [];
+    if (rows.some(r => r.userId === uid && r.key === key && r.status === 'pending')) {
+      return res.json({ success: false, message: 'Permintaan reset untuk key ini masih diproses admin.' });
+    }
+    const q = resetQuota(rows.filter(r => r.userId === uid), uid, settings);
+    if (q.left <= 0) return res.json({ success: false, message: `Jatah reset hari ini habis (${q.limit}/${q.limit}). Coba lagi besok.`, quota: q });
+    const users = readDB('users.json');
+    const u = users.find(x => x.id === uid);
+    rows.push({
+      id: uuidv4(), userId: uid, username: u?.username || '-', wa: u?.wa || '',
+      key, productName: found.productName, orderCode: found.code,
+      status: 'pending', note: '', day: wibDay(),
+      createdAt: new Date().toISOString(), time: formatDate()
+    });
+    await writeDB('resetkeys.json', rows);
+    res.json({ success: true, message: 'Permintaan reset terkirim. Admin akan memproses secepatnya.', quota: { limit: q.limit, used: q.used + 1, left: q.left - 1 } });
+  } catch (e) {
+    res.json({ success: false, message: 'Gagal mengirim permintaan: ' + e.message });
+  }
+});
+
+app.get('/admin/reset-keys', requireAdmin, async (req, res) => {
+  const rows = await readFresh('resetkeys.json');
+  const settings = await readFresh('settings.json');
+  res.json({ success: true, data: (Array.isArray(rows) ? rows : []).slice(-300).reverse(), limit: Math.max(1, parseInt(settings.resetKeyDailyLimit) || 2) });
+});
+app.post('/admin/reset-keys/limit', requireAdmin, async (req, res) => {
+  const n = parseInt(req.body.limit);
+  if (!n || n < 1 || n > 50) return res.json({ success: false, message: 'Batas harus 1-50.' });
+  const settings = await readFresh('settings.json');
+  settings.resetKeyDailyLimit = n;
+  await writeDB('settings.json', settings);
+  res.json({ success: true });
+});
+app.post('/admin/reset-keys/:id', requireAdmin, async (req, res) => {
+  const status = req.body.status === 'rejected' ? 'rejected' : 'done';
+  const rows = await readFresh('resetkeys.json');
+  const r = (Array.isArray(rows) ? rows : []).find(x => x.id === req.params.id);
+  if (!r) return res.json({ success: false, message: 'Permintaan tidak ditemukan.' });
+  r.status = status;
+  r.note = String(req.body.note || '').slice(0, 200);
+  r.processedAt = new Date().toISOString();
+  await writeDB('resetkeys.json', rows);
+  res.json({ success: true });
+});
 
 // ── RESELLER ──
 app.get('/reseller', (req, res) => {

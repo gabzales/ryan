@@ -1,0 +1,80 @@
+<%
+const pageTitle = 'Reset Key';
+const stLabel = { pending: 'Diproses', done: 'Selesai', rejected: 'Ditolak' };
+const stColor = { pending: '#d97706', done: '#16a34a', rejected: '#dc2626' };
+%>
+<%- include('../partials/edot-header') %>
+<div style="padding:16px 16px 40px;">
+<div style="max-width:480px;margin:0 auto;">
+
+  <div style="text-align:center;margin:8px 0 18px;">
+    <div style="width:56px;height:56px;border-radius:16px;background:#eef3ff;border:1px solid #d6e2fd;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
+      <iconify-icon icon="mdi:key-change" style="font-size:28px;color:#2563eb;"></iconify-icon>
+    </div>
+    <h1 style="font-size:20px;font-weight:900;color:var(--text-1);">Reset Key</h1>
+    <p style="font-size:12px;color:var(--text-3);margin-top:4px;">Khusus key yang kamu beli di <%= settings.siteName || 'toko ini' %>.</p>
+  </div>
+
+  <div class="neon-card" style="padding:18px;">
+    <label style="display:block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px;">Key</label>
+    <% if (keys.length) { %>
+    <select id="rkSelect" class="hm-input" style="margin-bottom:8px;" onchange="document.getElementById('rkKey').value=this.value">
+      <option value="">Pilih dari pembelianmu...</option>
+      <% keys.forEach(function(k){ %><option value="<%= k.key %>"><%= k.productName %> — <%= k.key.length > 22 ? k.key.slice(0,10) + '...' + k.key.slice(-8) : k.key %></option><% }) %>
+    </select>
+    <% } %>
+    <input id="rkKey" type="text" class="hm-input" placeholder="Tempel key di sini" autocomplete="off" spellcheck="false" style="font-family:monospace;">
+
+    <div id="rkQuota" style="font-size:12px;color:var(--text-2);margin:12px 0;">
+      Sisa jatah reset hari ini: <strong id="rkLeft"><%= quota.left %></strong>/<%= quota.limit %>
+    </div>
+    <div id="rkMsg" style="display:none;font-size:12px;font-weight:600;margin-bottom:12px;line-height:1.5;"></div>
+
+    <button id="rkBtn" onclick="rkSend()" class="btn-primary" style="width:100%;padding:13px;font-size:14px;border-radius:10px;" <%= quota.left <= 0 ? 'disabled' : '' %>>
+      <iconify-icon icon="mdi:key-change" style="font-size:18px;"></iconify-icon> Kirim Permintaan Reset
+    </button>
+    <p style="font-size:11px;color:var(--text-3);text-align:center;margin-top:10px;">Permintaan diproses admin. Status bisa kamu lihat di bawah.</p>
+  </div>
+
+  <% if (history.length) { %>
+  <div class="neon-card" style="padding:16px;margin-top:14px;">
+    <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:10px;">Riwayat Permintaan</div>
+    <% history.forEach(function(h){ %>
+    <div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:12px;">
+      <div style="min-width:0;">
+        <div style="font-weight:700;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= h.productName %></div>
+        <div style="font-family:monospace;color:var(--text-3);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= h.key %></div>
+        <% if (h.note) { %><div style="color:var(--text-2);font-size:11px;margin-top:2px;"><%= h.note %></div><% } %>
+      </div>
+      <div style="flex-shrink:0;text-align:right;">
+        <div style="font-weight:800;color:<%= stColor[h.status] || '#64748b' %>;"><%= stLabel[h.status] || h.status %></div>
+        <div style="color:var(--text-3);font-size:10px;"><%= h.time || '' %></div>
+      </div>
+    </div>
+    <% }) %>
+  </div>
+  <% } %>
+</div></div>
+
+<script>
+function rkMsg(t, ok){
+  var el = document.getElementById('rkMsg');
+  el.style.display = 'block'; el.textContent = t; el.style.color = ok ? '#16a34a' : '#db2777';
+}
+function rkSend(){
+  var key = document.getElementById('rkKey').value.trim();
+  if (!key) { rkMsg('Isi key dulu.', false); return; }
+  var btn = document.getElementById('rkBtn');
+  if (btn.disabled) return;
+  btn.disabled = true; btn.style.opacity = '.6';
+  fetch('/reset-key', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key: key }) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      rkMsg(d.message || (d.success ? 'Terkirim.' : 'Gagal.'), !!d.success);
+      if (d.quota) document.getElementById('rkLeft').textContent = d.quota.left;
+      if (d.success) { setTimeout(function(){ location.reload(); }, 1400); }
+      else if (!d.quota || d.quota.left > 0) { btn.disabled = false; btn.style.opacity = ''; }
+    })
+    .catch(function(){ rkMsg('Koneksi bermasalah, coba lagi.', false); btn.disabled = false; btn.style.opacity = ''; });
+}
+</script>
