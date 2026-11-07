@@ -346,6 +346,7 @@ app.use(async (req, res, next) => {
   res.locals.settings = settings || {};
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
   res.locals.reqPath = req.path || '/';
+  res.locals.googleEnabled = googleAuthConfigured(res.locals.settings);
   res.locals.cssVer = CSS_VER;
   res.locals.twCss = TW_CSS;
   res.locals.user = getSessionUser(req);
@@ -1604,6 +1605,127 @@ app.post('/register', async (req, res) => {
   req.session.isAdmin = false;
 
   res.redirect('/');
+});
+
+// ── GOOGLE LOGIN (OAuth 2.0 authorization code, tanpa dependency tambahan) ──
+// Kredensial: env GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, atau diisi di admin
+// (settings.googleAuth). Redirect URI yang didaftarkan di Google Cloud Console:
+//   https://DOMAIN-KAMU/auth/google/callback
+function googleAuthCfg(settings) {
+  const g = (settings && settings.googleAuth) || {};
+  return {
+    clientId: String(process.env.GOOGLE_CLIENT_ID || g.clientId || '').trim(),
+    clientSecret: String(process.env.GOOGLE_CLIENT_SECRET || g.clientSecret || '').trim()
+  };
+}
+function googleAuthConfigured(settings) {
+  const c = googleAuthCfg(settings);
+  return Boolean(c.clientId && c.clientSecret);
+}
+function googleRedirectUri(req) {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+  return `${proto}://${host}/auth/google/callback`;
+}
+const safeLocalPath = (p) => (typeof p === 'string' && /^\/(?!\/)[^\r\n\\]*$/.test(p)) ? p : '/';
+
+app.get('/auth/google', async (req, res) => {
+  const settings = res.locals.settings || readDB('settings.json');
+  if (!googleAuthConfigured(settings)) return res.redirect('/login');
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.gState = state;
+  req.session.gRedirect = safeLocalPath(req.query.redirect);
+  const q = new URLSearchParams({
+    client_id: googleAuthCfg(settings).clientId,
+    redirect_uri: googleRedirectUri(req),
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    prompt: 'select_account'
+  });
+  res.redirect('https://accounts.google.com/o/oauth2/v2/auth?' + q.toString());
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  const fail = (msg) => res.render('pages/login', { error: msg, redirect: '/', turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
+  try {
+    const settings = await readFresh('settings.json');
+    const cfg = googleAuthCfg(settings);
+    const { code, state, error } = req.query;
+    const expected = req.session && req.session.gState;
+    const back = safeLocalPath(req.session && req.session.gRedirect);
+    if (req.session) { req.session.gState = null; req.session.gRedirect = null; }
+    if (error) return fail('Login Google dibatalkan.');
+    if (!cfg.clientId || !cfg.clientSecret) return fail('Login Google belum diaktifkan.');
+    if (!code || !state || !expected || state !== expected) return fail('Sesi login Google tidak valid. Coba lagi.');
+
+    const tokRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code), client_id: cfg.clientId, client_secret: cfg.clientSecret,
+        redirect_uri: googleRedirectUri(req), grant_type: 'authorization_code'
+      }).toString(),
+      signal: AbortSignal.timeout(10000)
+    });
+    const tok = await tokRes.json().catch(() => ({}));
+    if (!tokRes.ok || !tok.access_token) {
+      console.error('[google-auth] token gagal:', tok.error, tok.error_description);
+      return fail('Login Google gagal. Coba lagi.');
+    }
+    const infoRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: 'Bearer ' + tok.access_token }, signal: AbortSignal.timeout(10000)
+    });
+    const info = await infoRes.json().catch(() => ({}));
+    if (!infoRes.ok || !info.sub || !info.email) return fail('Gagal membaca data akun Google.');
+    if (info.email_verified === false) return fail('Email Google belum terverifikasi.');
+
+    const email = String(info.email).toLowerCase();
+    const users = await readFresh('users.json');
+    let user = users.find(u => u.googleSub === info.sub) || users.find(u => u.email && String(u.email).toLowerCase() === email);
+    if (user && user.role === 'admin') return fail('Akun ini tidak bisa login lewat Google.');
+    if (user) {
+      let dirty = false;
+      if (!user.googleSub) { user.googleSub = info.sub; dirty = true; }
+      if (!user.email) { user.email = email; dirty = true; }
+      if (dirty) await writeDB('users.json', users);
+    } else {
+      // username unik dari nama Google / bagian depan email (sesuai aturan /register)
+      let base = String(info.name || email.split('@')[0]).replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 26);
+      if (base.length < 3) base = (email.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '') + 'user').slice(0, 26);
+      let username = base, n = 0;
+      const taken = (nm) => users.some(u => u.username === nm) || nm === settings.adminUsername;
+      while (taken(username)) { n++; username = base.slice(0, 26) + (Math.floor(Math.random() * 9000) + 1000); if (n > 20) break; }
+      user = {
+        id: uuidv4(), username, email, googleSub: info.sub,
+        password: await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10),
+        wa: '', photo: null, balance: 0, createdAt: new Date().toISOString()
+      };
+      users.push(user);
+      await writeDB('users.json', users);
+    }
+    req.session.userId = user.id;
+    req.session.isAdmin = false;
+    res.redirect(back);
+  } catch (e) {
+    console.error('[google-auth] error:', e.message);
+    fail('Login Google gagal. Coba lagi.');
+  }
+});
+
+app.post('/admin/settings/google-auth', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const old = settings.googleAuth || {};
+    const { clientId, clientSecret } = req.body;
+    settings.googleAuth = {
+      clientId: clientId !== undefined ? String(clientId).trim() : (old.clientId || ''),
+      clientSecret: (clientSecret !== undefined && String(clientSecret).trim() !== '') ? String(clientSecret).trim() : (old.clientSecret || '')
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true, message: 'Pengaturan Google Login disimpan.', enabled: googleAuthConfigured(settings), redirectUri: googleRedirectUri(req) });
+  } catch (e) { res.json({ success: false, message: e.message }); }
 });
 
 app.get('/logout', async (req, res) => {
