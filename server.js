@@ -10,8 +10,9 @@ const multer = require('multer');
 const crypto = require('crypto');
 const ghostSellerApi = require('./ghostseller-api');
 const vipBestModsApi = require('./vipbestmods-api');
-// Sumber stok 'auto' (key dipesan live ke provider): ghostseller & vipbestmods -> dianggap unlimited.
-const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods';
+const thanhubApi = require('./thanhub-api');
+// Sumber stok 'auto' (key dipesan live ke provider): ghostseller, vipbestmods & thanhub -> dianggap unlimited.
+const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods' || v === 'thanhub';
 // reseller-api.js (vipibmstore) dicabut total -- file-nya udah dihapus dari
 // repo. Auto-restock sekarang cuma lewat GhostSeller (ghostseller-api.js).
 
@@ -2152,6 +2153,25 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
     console.error('[vipbestmods] order gagal:', result.code, result.message);
     if (result.code === 'INSUFFICIENT_BALANCE') console.error('[vipbestmods] SALDO RESELLER HABIS -- topup di dashboard VIPBestMods');
     return { key: null, outOfStock: true, error: vipBestModsApi.customerMessage(result.code, result.message), code: result.code };
+  }
+
+  // ── Mode 'thanhub' — auto restock live dari Thanhub Reseller API v1.
+  // Mapping per-varian: thanhubVariantId (ANGKA dari GET /products).
+  // ref = id transaksi (stabil) -> retry tidak pernah memotong saldo 2x.
+  if (stockSource === 'thanhub') {
+    const opt = findPricingOpt(product, selectedDays, selectedUnit);
+    const variantId = opt && opt.thanhubVariantId;
+    if (variantId === null || variantId === undefined || variantId === '') {
+      return { key: null, outOfStock: true, error: 'Varian ini belum di-mapping ke Thanhub (pilih varian di Edit Produk).' };
+    }
+    const result = await thanhubApi.orderKey(settings, { variantId, idempotencyKey: ctx.idempotencyKey });
+    if (result.success) {
+      const key = result.data?.codes?.[0] || null;
+      return { key, outOfStock: !key, error: key ? null : 'Thanhub tidak mengembalikan key' };
+    }
+    console.error('[thanhub] order gagal:', result.code, result.message);
+    if (result.code === 'insufficient_balance') console.error('[thanhub] SALDO RESELLER HABIS -- topup di Thanhub');
+    return { key: null, outOfStock: true, error: thanhubApi.customerMessage(result.code), code: result.code };
   }
 
   // ── Mode manual (untuk varian ini spesifik) — logika lama, TIDAK diubah ──
@@ -4750,6 +4770,57 @@ app.get('/admin/vipbestmods-api/products', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Thanhub Reseller API v1 — simpan kredensial + tes koneksi (saldo + katalog) ──
+// apiKey tidak pernah dikirim balik ke browser; kosong saat simpan = pakai yang lama.
+app.post('/admin/settings/thanhub-api', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const old = settings.thanhubApi || {};
+    const { apiKey, baseUrl } = req.body;
+    const next = {
+      apiKey: (apiKey !== undefined && String(apiKey).trim() !== '') ? String(apiKey).trim() : (old.apiKey || ''),
+      baseUrl: thanhubApi.normalizeBaseUrl(baseUrl !== undefined && String(baseUrl).trim() ? baseUrl : (old.baseUrl || ''))
+    };
+    const tmp = { thanhubApi: next };
+    const steps = [];
+    let ok = true;
+    if (!next.apiKey || !next.baseUrl) {
+      steps.push({ step: 'config', ok: false, message: 'Base URL / API Key belum lengkap.' });
+      ok = false;
+    } else {
+      steps.push({ step: 'config', ok: true, message: 'Konfigurasi terisi.' });
+      const bal = await thanhubApi.getBalance(tmp);
+      steps.push({ step: 'balance', ok: bal.success, message: bal.success ? `Saldo reseller: Rp ${Number(bal.data?.balance || 0).toLocaleString('id-ID')}${bal.data?.name ? ' (' + bal.data.name + ')' : ''}` : thanhubApi.customerMessage(bal.code) + ` (${bal.code}${bal.code === 'ip_not_allowed' ? ': IP server belum di-allowlist di Thanhub, hapus batasan IP' : ''})` });
+      if (!bal.success) ok = false;
+      const prods = await thanhubApi.getVariants(tmp, { force: true });
+      steps.push({ step: 'products', ok: prods.success, message: prods.success ? `${prods.data.length} varian di katalog.` : thanhubApi.customerMessage(prods.code) + ` (${prods.code})` });
+      if (!prods.success) ok = false;
+    }
+    settings.thanhubApi = {
+      ...next,
+      lastTestStatus: ok ? 'ok' : 'failed',
+      lastTestAt: new Date().toISOString(),
+      lastTestMessage: ok ? null : (steps.find(x => !x.ok)?.message || 'Koneksi gagal')
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true, testSuccess: ok, steps, baseUrl: next.baseUrl });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// Katalog varian Thanhub untuk dropdown mapping di Edit Produk (cache 3 menit).
+app.get('/admin/thanhub-api/products', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const result = await thanhubApi.getVariants(settings, { force: req.query.refresh === '1' });
+    if (!result.success) return res.json({ success: false, message: thanhubApi.customerMessage(result.code), code: result.code });
+    res.json({ success: true, variants: result.data || [] });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
 // Test koneksi GhostSeller Partner API — pakai nilai dari form (belum
 // tentu sudah disimpan), sama pola dengan /admin/reseller-api/test.
 // Dipertahankan buat kompatibilitas, tapi alur utama sekarang lewat
@@ -5641,8 +5712,11 @@ app.post('/admin/product/:id', requireAdmin, async (req, res) => {
           const vipIdNum = Number(o.vipItemId);
           const vipItemId = (o.vipItemId !== null && o.vipItemId !== undefined && o.vipItemId !== '' && Number.isFinite(vipIdNum) && vipIdNum > 0) ? vipIdNum : null;
           const vipStockMode = o.vipStockMode === 'manual' ? 'manual' : 'v2';
+          // Mapping Thanhub: id varian WAJIB angka.
+          const thNum = Number(o.thanhubVariantId);
+          const thanhubVariantId = (o.thanhubVariantId !== null && o.thanhubVariantId !== undefined && o.thanhubVariantId !== '' && Number.isFinite(thNum) && thNum > 0) ? thNum : null;
           const unit = ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari';
-          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, vipItemId, vipStockMode, stockSource: rowStockSource, unit };
+          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, vipItemId, vipStockMode, thanhubVariantId, stockSource: rowStockSource, unit };
         })
         .filter(o => o.days > 0 && o.price >= 0);
       // FIX BUG "1 Jam ketuker/dobel jadi 1 DAYS": dedup per (days, unit) --

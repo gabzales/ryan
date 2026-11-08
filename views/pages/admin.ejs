@@ -1436,6 +1436,40 @@ textarea.hm-input{resize:vertical;min-height:80px;}
         </form>
     </div>
 
+    <!-- Thanhub Reseller API v1 — Auto Restock -->
+    <div class="neon-card p-5 mb-3" style="border-color:rgba(16,185,129,.25)">
+        <div class="text-xs font-bold mb-4 flex items-center gap-2" style="color:#34d399">
+            <iconify-icon icon="mdi:autorenew"></iconify-icon> Thanhub Reseller API (Auto Restock)
+            <% if (settings.thanhubApi?.lastTestStatus === 'ok') { %>
+            <span class="text-[9px] px-1.5 py-0.5 rounded font-black" style="background:rgba(34,197,94,.15);color:#4ade80;">TERHUBUNG</span>
+            <% } else if (settings.thanhubApi?.lastTestStatus === 'failed') { %>
+            <span class="text-[9px] px-1.5 py-0.5 rounded font-black" style="background:rgba(239,68,68,.15);color:#f87171;">GAGAL</span>
+            <% } %>
+        </div>
+        <% if (settings.thanhubApi?.lastTestAt) { %>
+        <div class="text-[10px] text-zinc-500 mb-2">Terakhir dites: <%= new Date(settings.thanhubApi.lastTestAt).toLocaleString('id-ID') %><% if (settings.thanhubApi.lastTestStatus === 'failed' && settings.thanhubApi.lastTestMessage) { %> — <span class="text-red-400"><%= settings.thanhubApi.lastTestMessage %></span><% } %></div>
+        <% } %>
+        <p class="text-[11px] text-zinc-500 mb-3 leading-relaxed">
+            Varian dengan sumber stok <strong class="text-emerald-300">Thanhub</strong> membeli 1 key live ke Thanhub tiap ada order
+            (saldo reseller di sana terpotong). Isi domain Thanhub dan API Key (<span class="font-mono">thb_...</span>) dari akun reseller.
+            Kalau API Key dibatasi IP, hapus batasannya (Vercel memakai IP yang berubah-ubah).
+        </p>
+        <form id="thanhubApiForm" class="space-y-3">
+            <div>
+                <div class="setting-row-label">Domain / Base URL</div>
+                <input type="text" name="baseUrl" value="<%= settings.thanhubApi?.baseUrl||'' %>" class="hm-input font-mono text-xs" placeholder="https://domain-thanhub.com/api/v1">
+            </div>
+            <div>
+                <div class="setting-row-label">API Key <%= settings.thanhubApi?.apiKey ? '(tersimpan — isi hanya untuk mengganti)' : '' %></div>
+                <input type="password" name="apiKey" autocomplete="new-password" spellcheck="false" value="" class="hm-input font-mono text-xs" placeholder="<%= settings.thanhubApi?.apiKey ? '••••••••••••' : 'thb_xxx' %>">
+            </div>
+            <button type="submit" class="btn-primary w-full justify-center py-2.5 text-sm">
+                <iconify-icon icon="mdi:content-save"></iconify-icon> Simpan &amp; Test Koneksi Thanhub
+            </button>
+            <div id="testResultThanhub" class="hidden text-[11px] p-2.5 rounded-lg space-y-1"></div>
+        </form>
+    </div>
+
     <!-- Reseller VIP -->
     <div class="neon-card p-5 mb-3" style="border-color:rgba(234,179,8,.2)">
         <div class="text-xs font-bold mb-4 flex items-center gap-2" style="color:#fbbf24">
@@ -2896,6 +2930,28 @@ document.getElementById('vipBestModsApiForm').addEventListener('submit', async f
     this.querySelector('[name=apiSecret]').value = '';
 });
 
+
+document.getElementById('thanhubApiForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const el = document.getElementById('testResultThanhub');
+    el.className = 'text-[11px] p-2.5 rounded-lg space-y-1 bg-purple-500/10 border border-purple-500/20 text-purple-300';
+    el.textContent = 'Menyimpan & menguji koneksi...';
+    el.classList.remove('hidden');
+    const d = await api('/admin/settings/thanhub-api', Object.fromEntries(new FormData(this)));
+    if (!d.success) {
+        el.className = 'text-[11px] p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400';
+        el.textContent = '✗ Gagal menyimpan: ' + (d.message || 'unknown error');
+        return;
+    }
+    el.className = 'text-[11px] p-2.5 rounded-lg space-y-1 border ' + (d.testSuccess ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-400');
+    el.innerHTML = '';
+    (d.steps || []).forEach(s => {
+        const row = document.createElement('div');
+        row.textContent = (s.ok ? '✓ ' : '✗ ') + s.message;
+        el.appendChild(row);
+    });
+    this.querySelector('[name=apiKey]').value = '';
+});
 
 document.getElementById('credForm').addEventListener('submit', async function(e) {
     e.preventDefault();

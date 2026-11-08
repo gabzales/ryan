@@ -143,7 +143,7 @@ const pageTitle = 'Beli ' + product.name;
                   // (itu penyebab customer bisa checkout produk yang sebenarnya
                   // sudah rusak/tanpa kredensial provider, insiden Sep 2026).
                   const po = (Array.isArray(product.pricingOptions) && product.pricingOptions[idx]) || {};
-                  const itemStockSource = (po.stockSource === 'ghostseller' || po.stockSource === 'vipbestmods') ? po.stockSource : 'manual';
+                  const itemStockSource = (po.stockSource === 'ghostseller' || po.stockSource === 'vipbestmods' || po.stockSource === 'thanhub') ? po.stockSource : 'manual';
                   let itemStock = 0;
                   let isOutOfStock = false;
                   if (itemStockSource !== 'manual') {
@@ -301,8 +301,8 @@ const pageTitle = 'Beli ' + product.name;
           // tetap dilakukan saat checkout beneran (resolveProductKey).
           // vipibmstore ('auto') dicabut total -- cuma 'ghostseller' yang
           // dianggap unlimited.
-          const hasAnyGhostSellerVariant = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods');
-          const hasStock = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'mixed' || hasAnyGhostSellerVariant || (product.keyCount||0) > 0;
+          const hasAnyGhostSellerVariant = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods' || o.stockSource === 'thanhub');
+          const hasStock = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'thanhub' || product.stockMode === 'mixed' || hasAnyGhostSellerVariant || (product.keyCount||0) > 0;
         %>
         <% if (hasStock) { %>
             <button id="submitBtn" onclick="handleOrder()"

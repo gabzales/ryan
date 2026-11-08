@@ -78,8 +78,8 @@ const siteName = settings?.siteName || 'RYAN NEW ERA';
 
   <div id="product-grid" class="edot-grid">
     <% products.forEach((product, pIdx) => {
-      const hasGs = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods');
-      const unlimited = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'mixed' || hasGs;
+      const hasGs = Array.isArray(product.pricingOptions) && product.pricingOptions.some(o => o.stockSource === 'ghostseller' || o.stockSource === 'vipbestmods' || o.stockSource === 'thanhub');
+      const unlimited = product.stockMode === 'ghostseller' || product.stockMode === 'vipbestmods' || product.stockMode === 'thanhub' || product.stockMode === 'mixed' || hasGs;
       const stock = unlimited ? Infinity : (product.keyCount || 0);
       const isOut = stock === 0;
       const opStatus = product.operationalStatus || 'online';
