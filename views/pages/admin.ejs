@@ -2168,6 +2168,34 @@ function openEditProductModal(id, name, category, description, imageUrl, pricing
     openModal('modal-product');
 }
 
+// Perkecil foto besar (mis. PNG iPhone 5-10MB) sebelum upload: batas body Vercel ~4.5MB
+// bikin server balas teks error non-JSON -> Safari: "The string did not match the expected pattern".
+async function shrinkImage(file, maxDim, quality) {
+  maxDim = maxDim || 1280; quality = quality || 0.85;
+  try {
+    if (!file || !/^image\//.test(file.type) || file.size < 1.2 * 1024 * 1024) return file;
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch (e) { return file; }
+}
+// Baca respons sebagai JSON tanpa melempar error cryptic kalau server balas teks/HTML.
+async function readJsonSafe(r) {
+  const t = await r.text();
+  try { return JSON.parse(t); } catch (e) {
+    return { success: false, message: r.status === 413 ? 'Ukuran gambar terlalu besar.' : 'Server membalas error (' + r.status + '). Coba lagi, atau pakai gambar lebih kecil.' };
+  }
+}
+
 document.getElementById('addProductForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const btn = document.getElementById('prodSubmitBtn');
@@ -2177,8 +2205,10 @@ document.getElementById('addProductForm').addEventListener('submit', async funct
     const fd = new FormData(this);
     const url = editId ? `/admin/product/edit/${editId}` : '/admin/product/add';
     try {
+        const imgF = fd.get('image');
+        if (imgF && imgF.size) { const sm = await shrinkImage(imgF); fd.set('image', sm, sm.name); }
         const r = await fetch(url, { method:'POST', body:fd });
-        const d = await r.json();
+        const d = await readJsonSafe(r);
         if (d.success) {
             toast(editId ? 'Produk diupdate!' : 'Produk ditambahkan!', 'success');
             closeModal('modal-product');
