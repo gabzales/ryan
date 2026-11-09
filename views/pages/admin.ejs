@@ -136,6 +136,10 @@ textarea.hm-input{resize:vertical;min-height:80px;}
 
 <!-- ── DASHBOARD ── -->
 <div id="pane-dashboard" class="tab-pane active">
+    <div id="balanceBanner" class="hidden mb-3 p-3 rounded-xl text-xs font-bold flex items-center gap-2" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#f87171;">
+        <iconify-icon icon="mdi:alert-circle"></iconify-icon>
+        <span id="balanceBannerText"></span>
+    </div>
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
         <div class="stat-card fade-in" style="background:linear-gradient(135deg,rgba(124,47,214,.12),rgba(124,47,214,.06));border-color:rgba(124,47,214,.25);">
             <div class="flex items-center justify-between mb-2">
@@ -1434,6 +1438,30 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             </button>
             <div id="testResultVipBestMods" class="hidden text-[11px] p-2.5 rounded-lg space-y-1"></div>
         </form>
+    </div>
+
+    <!-- Peringatan saldo provider & notif stok -->
+    <div class="neon-card p-5 mb-3" style="border-color:rgba(239,68,68,.25)">
+        <div class="text-xs font-bold mb-3 flex items-center gap-2" style="color:#f87171">
+            <iconify-icon icon="mdi:bell-alert"></iconify-icon> Peringatan Saldo Provider &amp; Notif Stok
+        </div>
+        <p class="text-[11px] text-zinc-500 mb-3 leading-relaxed">
+            Kalau saldo reseller VIPBestMods / Thanhub tinggal segini atau kurang, admin dikirimi WhatsApp (maks 1x per 6 jam) dan muncul banner merah di Dashboard.
+            Pengiriman WA butuh <strong>Token Fonnte</strong> (menu Kontak) dan nomor WhatsApp admin terisi. Token yang sama dipakai untuk notif stok kembali ke pembeli.
+        </p>
+        <div id="balanceList" class="space-y-1.5 mb-3 text-[11px] text-zinc-400">Memuat saldo...</div>
+        <form id="balanceAlertForm" class="space-y-3">
+            <div>
+                <div class="setting-row-label">Batas saldo (Rp)</div>
+                <input type="number" name="threshold" min="0" step="1000" value="50000" class="hm-input text-xs" id="balThreshold">
+            </div>
+            <label class="flex items-center gap-2 text-[11px] text-zinc-400"><input type="checkbox" id="balEnabled" checked> Aktifkan peringatan saldo</label>
+            <div class="flex gap-2">
+                <button type="submit" class="btn-primary flex-1 justify-center py-2.5 text-sm"><iconify-icon icon="mdi:content-save"></iconify-icon> Simpan</button>
+                <button type="button" class="btn-primary justify-center py-2.5 text-sm" style="background:rgba(255,255,255,.08);" onclick="loadBalances(true)"><iconify-icon icon="mdi:refresh"></iconify-icon> Cek saldo</button>
+            </div>
+        </form>
+        <div class="text-[10px] text-zinc-500 mt-3" id="restockPending"></div>
     </div>
 
     <!-- Thanhub Reseller API v1 — Auto Restock -->
@@ -2934,7 +2962,7 @@ document.getElementById('googleRedirectUri').textContent = location.origin + '/a
 document.getElementById('googleAuthForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const d = await api('/admin/settings/google-auth', Object.fromEntries(new FormData(this)));
-    if (typeof showToast === 'function') showToast(d.success ? 'Login Google disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    if (typeof toast === 'function') toast(d.success ? 'Login Google disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
     if (d.success) this.querySelector('[name=clientSecret]').value = '';
 });
 
@@ -2960,6 +2988,39 @@ document.getElementById('vipBestModsApiForm').addEventListener('submit', async f
     this.querySelector('[name=apiSecret]').value = '';
 });
 
+
+async function loadBalances(force) {
+    try {
+        const r = await fetch('/admin/provider-balances' + (force ? '?refresh=1' : ''));
+        const d = await r.json();
+        if (!d.success) return;
+        const rp = (n) => 'Rp ' + Number(n).toLocaleString('id-ID');
+        const th = document.getElementById('balThreshold'); if (th) th.value = d.threshold;
+        const en = document.getElementById('balEnabled'); if (en) en.checked = d.enabled;
+        const list = document.getElementById('balanceList');
+        if (list) list.innerHTML = d.providers.length ? d.providers.map(p =>
+            '<div class="flex items-center justify-between"><span>' + p.label + '</span><span class="font-bold ' + (p.error ? 'text-amber-400' : (p.low ? 'text-red-400' : 'text-emerald-400')) + '">' +
+            (p.error ? p.error : rp(p.balance) + (p.low ? ' · MENIPIS' : '')) + '</span></div>').join('')
+            : 'Belum ada provider yang dikonfigurasi.';
+        const pr = document.getElementById('restockPending');
+        if (pr) pr.textContent = 'Permintaan notif stok menunggu: ' + d.pendingRestock + (d.fonnte ? '' : ' (Token Fonnte belum diisi, notif belum bisa terkirim)');
+        const low = d.providers.filter(p => p.low);
+        const bn = document.getElementById('balanceBanner');
+        if (bn) {
+            if (d.enabled && low.length) {
+                document.getElementById('balanceBannerText').textContent = 'Saldo menipis: ' + low.map(p => p.label + ' ' + rp(p.balance)).join(', ') + '. Segera topup.';
+                bn.classList.remove('hidden');
+            } else bn.classList.add('hidden');
+        }
+    } catch (e) {}
+}
+document.getElementById('balanceAlertForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const d = await api('/admin/settings/balance-alert', { threshold: document.getElementById('balThreshold').value, enabled: document.getElementById('balEnabled').checked });
+    if (typeof toast === 'function') toast(d.success ? 'Pengaturan saldo disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    if (d.success) loadBalances(true);
+});
+setTimeout(loadBalances, 1200);
 
 document.getElementById('thanhubApiForm').addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -3617,14 +3678,14 @@ async function processResetKey(id, status) {
     if (status === 'rejected') { note = prompt('Alasan penolakan (opsional):') || ''; }
     const r = await fetch('/admin/reset-keys/' + id, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status, note }) });
     const d = await r.json();
-    if (typeof showToast === 'function') showToast(d.success ? 'Tersimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    if (typeof toast === 'function') toast(d.success ? 'Tersimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
     loadResetKeys();
 }
 async function saveRkLimit() {
     const limit = document.getElementById('rkLimitInput').value;
     const r = await fetch('/admin/reset-keys/limit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ limit }) });
     const d = await r.json();
-    if (typeof showToast === 'function') showToast(d.success ? 'Batas disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    if (typeof toast === 'function') toast(d.success ? 'Batas disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
 }
 
 async function loadVouchers() {

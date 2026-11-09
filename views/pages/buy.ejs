@@ -147,8 +147,9 @@ const pageTitle = 'Beli ' + product.name;
                   let itemStock = 0;
                   let isOutOfStock = false;
                   if (itemStockSource !== 'manual') {
-                    isOutOfStock = false;
-                    itemStock = 1; // sekadar penanda "ada", bukan angka stok riil (unlimited di GhostSeller)
+                    // provider (Thanhub/VIPBestMods) melaporkan varian ini kosong / maintenance -> Habis
+                    isOutOfStock = !!po.providerOut;
+                    itemStock = isOutOfStock ? 0 : 1; // sekadar penanda "ada", bukan angka stok riil (unlimited di GhostSeller)
                   } else {
                     const days = po.days;
                     const taggedCount = days ? ((product.taggedKeyCounts || {})[`${days}:${(po.unit === 'jam' || po.unit === 'menit') ? po.unit : 'hari'}`] || 0) : 0;
@@ -158,14 +159,14 @@ const pageTitle = 'Beli ' + product.name;
                   }
                 %>
                 <% const displayPrice = (isReseller && item.reseller_price) ? item.reseller_price : item.p; %>
-                <label class="pkg-option-label" style="<%= isOutOfStock ? 'opacity:0.5;cursor:not-allowed;' : '' %>">
+                <label class="pkg-option-label" style="<%= isOutOfStock ? 'cursor:not-allowed;' : '' %>">
                     <input type="radio" name="pkg" value="<%= idx %>"
                            onchange="selectPkg('<%= item.l %>', <%= displayPrice %>, <%= itemStock %>)"
                            <%= idx===0 && !isOutOfStock ? 'checked' : '' %>
                            <%= isOutOfStock ? 'disabled' : '' %>>
-                    <div class="pkg-card rounded-2xl p-3">
+                    <div class="pkg-card rounded-2xl p-3" style="<%= isOutOfStock ? 'opacity:0.55;' : '' %>">
                         <div class="text-xs font-semibold text-white/70 mb-0.5">
-                            <%= item.l %>
+                            <%= item.l %><% if (isOutOfStock) { %> <span style="font-size:9px;font-weight:800;color:#dc2626;letter-spacing:.05em;">HABIS</span><% } %>
                         </div>
                         <div class="text-sm font-black <%= isReseller && item.reseller_price ? 'text-yellow-400' : 'text-white' %>">
                             Rp <%= displayPrice.toLocaleString('id-ID') %>
@@ -174,6 +175,12 @@ const pageTitle = 'Beli ' + product.name;
                             <div class="text-[9px] text-zinc-500 line-through">Rp <%= item.p.toLocaleString('id-ID') %></div>
                         <% } %>
                     </div>
+                    <% if (isOutOfStock) { %>
+                    <button type="button" onclick="openRestock(event, <%= idx %>, '<%= String(item.l).replace(/'/g, '') %>')"
+                        style="display:block;width:100%;margin-top:5px;padding:6px 8px;border-radius:10px;border:1px solid rgba(124,47,214,.45);background:rgba(124,47,214,.12);color:#a78bfa;font-size:10px;font-weight:800;cursor:pointer;">
+                        Kabari saya saat ready
+                    </button>
+                    <% } %>
                 </label>
                 <% }) %>
             <% } %>
@@ -1020,4 +1027,45 @@ const pageTitle = 'Beli ' + product.name;
     }
 
     document.addEventListener('DOMContentLoaded', loadReviews);
+</script>
+
+<!-- Notif stok kembali -->
+<div id="restockModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:16px;">
+  <div style="width:100%;max-width:360px;background:#14101f;border:1px solid rgba(124,47,214,.35);border-radius:18px;padding:18px;">
+    <div style="font-size:14px;font-weight:900;color:#fff;margin-bottom:4px;">Kabari saya saat stok ready</div>
+    <div id="restockLabel" style="font-size:11px;color:rgba(255,255,255,.55);margin-bottom:12px;"></div>
+    <input id="restockWa" type="tel" maxlength="15" placeholder="08xxxxxxxxxx" value="<%= user?.wa || '' %>"
+      style="width:100%;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:13px;outline:none;margin-bottom:10px;">
+    <div id="restockMsg" style="display:none;font-size:11px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button type="button" onclick="closeRestock()" style="flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.7);font-size:12px;font-weight:700;cursor:pointer;">Batal</button>
+      <button type="button" id="restockBtn" onclick="sendRestock()" style="flex:1;padding:10px;border-radius:12px;border:0;background:#7c2fd6;color:#fff;font-size:12px;font-weight:800;cursor:pointer;">Kirim</button>
+    </div>
+  </div>
+</div>
+<script>
+var restockIdx = null;
+function openRestock(e, idx, label) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  restockIdx = idx;
+  document.getElementById('restockLabel').textContent = <%- JSON.stringify(String(product.name)).replace(/</g, '\\u003c') %> + ' · ' + label;
+  document.getElementById('restockMsg').style.display = 'none';
+  document.getElementById('restockBtn').disabled = false;
+  document.getElementById('restockModal').style.display = 'flex';
+}
+function closeRestock() { document.getElementById('restockModal').style.display = 'none'; }
+function sendRestock() {
+  var btn = document.getElementById('restockBtn'), msg = document.getElementById('restockMsg');
+  btn.disabled = true;
+  fetch('/api/restock-notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ productId: '<%= product.id %>', idx: restockIdx, wa: document.getElementById('restockWa').value }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      msg.style.display = 'block';
+      msg.style.color = d.success ? '#4ade80' : '#f87171';
+      msg.textContent = d.message || (d.success ? 'Tercatat.' : 'Gagal.');
+      if (d.success) setTimeout(closeRestock, 1600); else btn.disabled = false;
+    })
+    .catch(function () { msg.style.display = 'block'; msg.style.color = '#f87171'; msg.textContent = 'Koneksi bermasalah, coba lagi.'; btn.disabled = false; });
+}
 </script>

@@ -483,7 +483,7 @@ const initDB = async () => {
     homeProductsLimit: 10
   };
 
-  const arrayFiles = ['users.json', 'products.json', 'transactions.json', 'testimonials.json', 'notifications.json', 'keyspool.json', 'vouchers.json', 'resetkeys.json'];
+  const arrayFiles = ['users.json', 'products.json', 'transactions.json', 'testimonials.json', 'notifications.json', 'keyspool.json', 'vouchers.json', 'resetkeys.json', 'restocknotify.json'];
 
   // Seed arrays only if they don't exist at all
   for (const filename of arrayFiles) {
@@ -1179,6 +1179,119 @@ const sendWhatsAppNotif = (target, message, settings) => {
   });
 };
 
+// ══════════════════════════════════════════════════════════════
+// FITUR: peringatan saldo provider, varian habis otomatis, notif stok kembali
+// ══════════════════════════════════════════════════════════════
+const BAL_COOLDOWN_MS = 6 * 3600 * 1000;
+const PROVIDER_LABEL = { vipbestmods: 'VIPBestMods', thanhub: 'Thanhub' };
+
+// Dipanggil setelah tiap order provider (saldo terbaru) / saat saldo habis.
+// Saldo <= batas -> WA ke admin via Fonnte (maks 1x per 6 jam per provider).
+async function checkProviderBalance(provider, balance, { force = false } = {}) {
+  try {
+    const bal = Number(balance);
+    if (balance === null || balance === undefined || !Number.isFinite(bal)) return;
+    const settings = await readSmart('settings.json');
+    const cfg = settings.balanceAlert || {};
+    if (cfg.enabled === false) return;
+    const threshold = Number.isFinite(Number(cfg.threshold)) ? Number(cfg.threshold) : 50000;
+    if (!force && bal > threshold) return;
+    const last = Number(settings.balanceAlertState?.[provider]?.at || 0);
+    if (Date.now() - last < (force ? 30 * 60 * 1000 : BAL_COOLDOWN_MS)) return;
+    const fresh = await readFresh('settings.json');
+    fresh.balanceAlertState = { ...(fresh.balanceAlertState || {}), [provider]: { at: Date.now(), balance: bal } };
+    await writeDB('settings.json', fresh);
+    const label = PROVIDER_LABEL[provider] || provider;
+    const msg = `[PERINGATAN SALDO]\nSaldo reseller ${label} tinggal Rp ${bal.toLocaleString('id-ID')} (batas Rp ${threshold.toLocaleString('id-ID')}).\nSegera topup supaya order pembeli tidak gagal terkirim.`;
+    await Promise.race([
+      sendWhatsAppNotif(fresh.contact?.whatsapp, msg, fresh),
+      new Promise(r => setTimeout(r, 6000))
+    ]);
+  } catch (e) { console.error('[balance-alert]', e.message); }
+}
+
+// Ketersediaan varian di provider (katalog di-cache 3 menit di modul provider,
+// timeout 2.5 detik, gagal = anggap tersedia supaya toko tidak ikut mati).
+// Hasil: { [indexPricingOptions]: true } untuk varian yang kosong / produk maintenance.
+async function providerAvailability(product, settings) {
+  const out = {};
+  try {
+    const opts = Array.isArray(product?.pricingOptions) ? product.pricingOptions : [];
+    const needTh = opts.some(o => o.stockSource === 'thanhub');
+    const needVip = opts.some(o => o.stockSource === 'vipbestmods');
+    if (!needTh && !needVip) return out;
+    const withTimeout = (p) => Promise.race([p, new Promise(r => setTimeout(() => r(null), 2500))]);
+    const [th, vip] = await Promise.all([
+      needTh ? withTimeout(thanhubApi.getVariants(settings)) : null,
+      needVip ? withTimeout(vipBestModsApi.getProducts(settings)) : null
+    ]);
+    const thMap = new Map(); if (th && th.success) th.data.forEach(v => thMap.set(Number(v.id), v));
+    const vipMap = new Map(); if (vip && vip.success) vip.data.forEach(v => vipMap.set(Number(v.id), v));
+    opts.forEach((o, i) => {
+      if (o.stockSource === 'thanhub' && o.thanhubVariantId) {
+        const v = thMap.get(Number(o.thanhubVariantId));
+        if (v && (v.available === false || v.stock === 0)) out[i] = true;
+      }
+      if (o.stockSource === 'vipbestmods' && o.vipItemId) {
+        const v = vipMap.get(Number(o.vipItemId));
+        if (v && ((v.status && v.status !== 'active') || (typeof v.stock === 'number' && v.stock <= 0 && v.stock_mode === 'manual'))) out[i] = true;
+      }
+    });
+  } catch (e) { /* fail-open */ }
+  return out;
+}
+async function isVariantProviderOut(product, days, unit, settings) {
+  const opt = findPricingOpt(product, days, unit);
+  if (!opt || (opt.stockSource !== 'thanhub' && opt.stockSource !== 'vipbestmods')) return false;
+  const map = await providerAvailability(product, settings);
+  return !!map[product.pricingOptions.indexOf(opt)];
+}
+
+// Notif stok kembali: pembeli titip nomor WA di varian yang habis.
+const normalizeWa = (raw) => {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (d.startsWith('0')) d = '62' + d.slice(1);
+  else if (d.startsWith('8')) d = '62' + d;
+  return (d.length >= 10 && d.length <= 15 && d.startsWith('62')) ? d : null;
+};
+// Cek semua permintaan yang menunggu untuk 1 produk; kirim WA bila varian-nya sudah ada stok.
+async function notifyRestockForProduct(productId, preloaded) {
+  try {
+    const rows = await readFresh('restocknotify.json');
+    const waiting = (Array.isArray(rows) ? rows : []).filter(r => r.productId === productId && !r.notifiedAt);
+    if (!waiting.length) return 0;
+    const settings = await readFresh('settings.json');
+    if (!settings.fonnteToken) return 0;
+    const products = preloaded || await readFresh('products.json');
+    const product = products.find(p => p.id === productId);
+    if (!product || product.status !== 'active') return 0;
+    const pub = toPublicProduct(product);
+    const out = await providerAvailability(product, settings);
+    let sent = 0;
+    for (const r of waiting) {
+      const idx = Array.isArray(product.pricingOptions) ? product.pricingOptions.findIndex(o => o.days === r.days && unitOf(o) === r.unit) : -1;
+      const opt = idx >= 0 ? product.pricingOptions[idx] : null;
+      let inStock;
+      if (opt && isAutoStockSource(opt.stockSource)) inStock = !out[idx];
+      else {
+        const tagged = (pub.taggedKeyCounts || {})[`${r.days}:${r.unit}`] || 0;
+        inStock = (tagged + (pub.genericKeyCount || 0)) > 0;
+      }
+      if (!inStock) continue;
+      const msg = `Halo! Stok ${product.name} (${r.label}) di ${settings.siteName || 'toko kami'} sudah tersedia lagi.\nBeli sekarang sebelum habis: ${r.origin || ''}/buy/${product.id}`;
+      const ok = await sendWhatsAppNotif(r.wa, msg, settings);
+      if (ok) { r.notifiedAt = new Date().toISOString(); sent++; }
+    }
+    if (sent) {
+      const all = await readFresh('restocknotify.json');
+      const byId = new Map(waiting.map(w => [w.id, w]));
+      (Array.isArray(all) ? all : []).forEach(x => { const w = byId.get(x.id); if (w && w.notifiedAt) x.notifiedAt = w.notifiedAt; });
+      await writeDB('restocknotify.json', all);
+    }
+    return sent;
+  } catch (e) { console.error('[restock-notify]', e.message); return 0; }
+}
+
 // PENTING: dokumentasi resmi GensPay (genspay.my.id/docs) TIDAK menyediakan
 // endpoint GET untuk cek status transaksi -- GensPay sepenuhnya mengandalkan
 // WEBHOOK (POST ke Webhook URL project kamu, event "transaction.updated")
@@ -1809,6 +1922,89 @@ app.post('/vpr-secure-panel-8x', async (req, res) => {
 });
 
 
+// ── Peringatan saldo provider (admin) ──
+let _balCache = { at: 0, data: null };
+app.get('/admin/provider-balances', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const cfg = settings.balanceAlert || {};
+    const threshold = Number.isFinite(Number(cfg.threshold)) ? Number(cfg.threshold) : 50000;
+    let providers;
+    if (_balCache.data && Date.now() - _balCache.at < 30000 && req.query.refresh !== '1') providers = _balCache.data;
+    else {
+      providers = [];
+      if (vipBestModsApi.isConfigured(settings)) {
+        const r = await vipBestModsApi.getBalance(settings);
+        const d = r.data;
+        const n = r.success ? Number(d && typeof d === 'object' ? (d.balance ?? d.available_balance ?? d.saldo) : d) : null;
+        providers.push({ key: 'vipbestmods', label: 'VIPBestMods', balance: Number.isFinite(n) ? n : null, error: r.success ? null : `${r.code}: ${String(r.message || '').slice(0, 80)}` });
+      }
+      if (thanhubApi.isConfigured(settings)) {
+        const r = await thanhubApi.getBalance(settings);
+        const n = r.success ? Number(r.data && r.data.balance) : null;
+        providers.push({ key: 'thanhub', label: 'Thanhub', balance: Number.isFinite(n) ? n : null, error: r.success ? null : `${r.code}: ${String(r.message || '').slice(0, 80)}` });
+      }
+      _balCache = { at: Date.now(), data: providers };
+    }
+    const rows = await readFresh('restocknotify.json');
+    res.json({
+      success: true,
+      enabled: cfg.enabled !== false,
+      threshold,
+      fonnte: !!settings.fonnteToken,
+      pendingRestock: (Array.isArray(rows) ? rows : []).filter(r => !r.notifiedAt).length,
+      providers: providers.map(p => ({ ...p, low: p.balance !== null && p.balance <= threshold }))
+    });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+app.post('/admin/settings/balance-alert', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const t = parseInt(req.body.threshold);
+    if (!Number.isFinite(t) || t < 0) return res.json({ success: false, message: 'Batas saldo tidak valid.' });
+    settings.balanceAlert = { enabled: req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on', threshold: t };
+    await writeDB('settings.json', settings);
+    _balCache = { at: 0, data: null };
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// ── Notif stok kembali (pembeli titip nomor WA di varian yang habis) ──
+app.post('/api/restock-notify', requireAuth, async (req, res) => {
+  try {
+    const { productId, idx } = req.body;
+    const wa = normalizeWa(req.body.wa);
+    if (!wa) return res.json({ success: false, message: 'Nomor WhatsApp tidak valid.' });
+    const products = await readSmart('products.json');
+    const product = products.find(p => p.id === productId && p.status === 'active');
+    if (!product) return res.json({ success: false, message: 'Produk tidak ditemukan.' });
+    const i = parseInt(idx);
+    const po = Array.isArray(product.pricingOptions) ? product.pricingOptions[i] : null;
+    const item = Array.isArray(product.items) ? product.items[i] : null;
+    let days, unit, label;
+    if (po) { days = po.days; unit = unitOf(po); label = item ? item.l : `${po.days} ${unit}`; }
+    else if (item) { const pl = parseItemLabel(item.l); days = pl.days; unit = pl.unit; label = item.l; }
+    else return res.json({ success: false, message: 'Varian tidak ditemukan.' });
+    const rowsAll = await readFresh('restocknotify.json');
+    const rows = Array.isArray(rowsAll) ? rowsAll : [];
+    if (rows.some(r => r.wa === wa && r.productId === productId && r.days === days && r.unit === unit && !r.notifiedAt)) {
+      return res.json({ success: true, message: 'Sudah tercatat. Kami kabari lewat WhatsApp begitu stok tersedia.' });
+    }
+    if (rows.filter(r => r.userId === req.session.userId && !r.notifiedAt).length >= 10) {
+      return res.json({ success: false, message: 'Batas 10 permintaan menunggu tercapai.' });
+    }
+    const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+    const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+    rows.push({
+      id: uuidv4(), userId: req.session.userId, productId, productName: product.name,
+      days, unit, label, wa, origin: `${proto}://${host}`,
+      createdAt: new Date().toISOString(), notifiedAt: null
+    });
+    await writeDB('restocknotify.json', rows.slice(-3000));
+    res.json({ success: true, message: 'Siap! Kami kabari lewat WhatsApp begitu stok tersedia.' });
+  } catch (e) { res.json({ success: false, message: 'Gagal menyimpan permintaan.' }); }
+});
+
 // ── RESET KEY ──
 // Pembeli minta reset key (HWID dll) yang DIA BELI di toko ini. Provider
 // belum punya API reset, jadi permintaan masuk antrian dan diproses admin
@@ -2148,10 +2344,11 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
     });
     if (result.success) {
       const key = result.data?.codes?.[0] || null;
+      await checkProviderBalance('vipbestmods', result.data?.balance_after);
       return { key, outOfStock: !key, error: key ? null : 'VIPBestMods tidak mengembalikan key' };
     }
     console.error('[vipbestmods] order gagal:', result.code, result.message);
-    if (result.code === 'INSUFFICIENT_BALANCE') console.error('[vipbestmods] SALDO RESELLER HABIS -- topup di dashboard VIPBestMods');
+    if (result.code === 'INSUFFICIENT_BALANCE') { console.error('[vipbestmods] SALDO RESELLER HABIS -- topup di dashboard VIPBestMods'); await checkProviderBalance('vipbestmods', 0, { force: true }); }
     return { key: null, outOfStock: true, error: vipBestModsApi.customerMessage(result.code, result.message), code: result.code };
   }
 
@@ -2167,10 +2364,11 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
     const result = await thanhubApi.orderKey(settings, { variantId, idempotencyKey: ctx.idempotencyKey });
     if (result.success) {
       const key = result.data?.codes?.[0] || null;
+      await checkProviderBalance('thanhub', result.data?.balance);
       return { key, outOfStock: !key, error: key ? null : 'Thanhub tidak mengembalikan key' };
     }
     console.error('[thanhub] order gagal:', result.code, result.message);
-    if (result.code === 'insufficient_balance') console.error('[thanhub] SALDO RESELLER HABIS -- topup di Thanhub');
+    if (result.code === 'insufficient_balance') { console.error('[thanhub] SALDO RESELLER HABIS -- topup di Thanhub'); await checkProviderBalance('thanhub', 0, { force: true }); }
     return { key: null, outOfStock: true, error: thanhubApi.customerMessage(result.code), code: result.code };
   }
 
@@ -2258,6 +2456,9 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     const selectedDays = variant.selectedDays, selectedUnit = variant.selectedUnit;
 
     if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
+      return res.json({ success: false, message: 'Stok habis' });
+    }
+    if (await isVariantProviderOut(product, selectedDays, selectedUnit, res.locals.settings || await readFresh('settings.json'))) {
       return res.json({ success: false, message: 'Stok habis' });
     }
 
@@ -2810,7 +3011,20 @@ app.get('/buy/:id', requireAuth, async (req, res) => {
     t.status === 'done'
   );
 
-  res.render('pages/buy', { product: toPublicProduct(product), settings, user, isReseller, hasPurchased });
+  // Varian provider yang kosong / maintenance -> tampil "Habis" (tanpa mengubah cache produk).
+  const providerOut = await providerAvailability(product, settings);
+  const productView = Array.isArray(product.pricingOptions) && Object.keys(providerOut).length
+    ? { ...product, pricingOptions: product.pricingOptions.map((o, i) => ({ ...o, providerOut: !!providerOut[i] })) }
+    : product;
+  // Ada yang menunggu stok produk ini & sekarang ready -> kabari (jarang terjadi, hanya bila ada antrean).
+  try {
+    const waitRows = await readSmart('restocknotify.json');
+    if ((Array.isArray(waitRows) ? waitRows : []).some(r => r.productId === product.id && !r.notifiedAt)) {
+      await notifyRestockForProduct(product.id);
+    }
+  } catch (e) { /* abaikan */ }
+
+  res.render('pages/buy', { product: toPublicProduct(productView), settings, user, isReseller, hasPurchased });
 });
 
 app.post('/create-order', requireAuth, async (req, res) => {
@@ -2847,6 +3061,9 @@ app.post('/create-order', requireAuth, async (req, res) => {
     const selectedDays = variant.selectedDays, selectedUnit = variant.selectedUnit;
 
     if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
+      return res.json({ success: false, message: 'Stok habis' });
+    }
+    if (await isVariantProviderOut(product, selectedDays, selectedUnit, res.locals.settings || await readFresh('settings.json'))) {
       return res.json({ success: false, message: 'Stok habis' });
     }
 
@@ -4358,7 +4575,7 @@ app.post('/admin/product/keys/:id', requireAdmin, async (req, res) => {
       const toAdd = nk.filter(k => !existing.has(k));
       product.keys = [...(product.keys || []), ...toAdd];
     }
-    await writeDB('products.json',products);res.json({success:true,keyCount:product.keys.length});
+    await writeDB('products.json',products);await notifyRestockForProduct(product.id, products);res.json({success:true,keyCount:product.keys.length});
   }catch(e){res.json({success:false,message:e.message});}
 });
 
@@ -4454,6 +4671,7 @@ app.post('/admin/product/add-keys/:id', requireAdmin, async (req, res) => {
     product.keys.push(...newKeys);
 
     await writeDB('products.json', products);
+    await notifyRestockForProduct(product.id, products);
     res.json({ success: true, message: `${newKeys.length} key berhasil ditambahkan`, keyCount: product.keys.length });
   } catch (error) {
     res.json({ success: false, message: error.message });
