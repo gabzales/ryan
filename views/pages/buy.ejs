@@ -269,6 +269,14 @@ const pageTitle = 'Beli ' + product.name;
                 <span>Durasi</span>
                 <span class="text-white font-semibold" id="selectedLabel"><%= product.items?.[0]?.l || '-' %></span>
             </div>
+            <div class="flex justify-between items-center text-white/40">
+                <span>Jumlah</span>
+                <div class="flex items-center gap-1" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:2px">
+                    <button type="button" id="qtyMinus" onclick="changeQty(-1)" style="width:30px;height:30px;border-radius:8px;color:#fff;font-weight:900;font-size:18px;line-height:1">&minus;</button>
+                    <input type="number" id="qtyInput" value="1" min="1" max="<%= Math.min(20, Math.max(1, parseInt(settings.maxQtyPerOrder) || 10)) %>" inputmode="numeric" onchange="setQty(this.value)" style="width:38px;text-align:center;background:transparent;color:#fff;font-weight:800;font-size:14px;outline:none;-moz-appearance:textfield">
+                    <button type="button" id="qtyPlus" onclick="changeQty(1)" style="width:30px;height:30px;border-radius:8px;color:#fff;font-weight:900;font-size:18px;line-height:1">+</button>
+                </div>
+            </div>
             <div id="voucherRow" class="hidden flex justify-between text-white/40">
                 <span>Diskon</span>
                 <span class="text-emerald-400 font-semibold" id="discountShow">-</span>
@@ -484,7 +492,7 @@ const pageTitle = 'Beli ' + product.name;
                     <iconify-icon icon="mdi:check-decagram" class="text-emerald-400 text-3xl block mb-1.5"></iconify-icon>
                     <p class="text-xs font-bold text-emerald-400 mb-3">Pembayaran berhasil! Ini key produk kamu:</p>
                     <div class="flex items-center gap-2">
-                        <div id="keyResultValue" class="flex-1 font-mono font-black text-sm text-white bg-black/30 rounded-lg py-2.5 px-3 break-all text-left" style="border:1px solid rgba(16,185,129,.25)">—</div>
+                        <div id="keyResultValue" class="whitespace-pre-line flex-1 font-mono font-black text-sm text-white bg-black/30 rounded-lg py-2.5 px-3 break-all text-left" style="border:1px solid rgba(16,185,129,.25)">—</div>
                         <button id="keyCopyBtn" onclick="copyKeyResult()" class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-emerald-400" style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3)">
                             <iconify-icon icon="mdi:content-copy"></iconify-icon>
                         </button>
@@ -526,6 +534,8 @@ const pageTitle = 'Beli ' + product.name;
 </div>
 
 <script>
+    const QTY_MAX = <%= Math.min(20, Math.max(1, parseInt(settings.maxQtyPerOrder) || 10)) %>;
+    let qty = 1;
     let selPkg = { label:'<%= (product.items?.[0]?.l||"") %>', price:<%= (isReseller && product.items?.[0]?.reseller_price) ? product.items[0].reseller_price : (product.items?.[0]?.p||0) %> };
     let myRating = 0;
     let payInterval = null;
@@ -557,7 +567,18 @@ const pageTitle = 'Beli ' + product.name;
         updateTotalDisplay(price);
     }
 
+    function setQty(v) {
+        let n = parseInt(v, 10);
+        if (!Number.isFinite(n) || n < 1) n = 1;
+        if (n > QTY_MAX) { n = QTY_MAX; showToast('Maksimal ' + QTY_MAX + ' key per pesanan','info'); }
+        if (n !== qty) { qty = n; appliedVoucher = null; const st = document.getElementById('voucherStatus'); if (st) st.classList.add('hidden'); }
+        document.getElementById('qtyInput').value = qty;
+        updateTotalDisplay(selPkg.price);
+    }
+    function changeQty(d) { setQty(qty + d); }
+
     function updateTotalDisplay(basePrice) {
+        basePrice = basePrice * qty;
         const origEl    = document.getElementById('originalPriceShow');
         const priceEl   = document.getElementById('totalPrice');
         const vRow      = document.getElementById('voucherRow');
@@ -587,7 +608,7 @@ const pageTitle = 'Beli ' + product.name;
             const res = await fetch('/api/voucher/check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, price: selPkg.price })
+                body: JSON.stringify({ code, price: selPkg.price * qty })
             });
             const d = await res.json();
             if (d.valid) {
@@ -639,6 +660,7 @@ const pageTitle = 'Beli ' + product.name;
                 duration: selPkg.label,
                 customerName: name,
                 wa,
+                qty,
                 voucherCode: appliedVoucher ? appliedVoucher.code : undefined
             })});
             const data = await res.json();
@@ -677,11 +699,12 @@ const pageTitle = 'Beli ' + product.name;
                 duration: selPkg.label,
                 customerName: name,
                 wa,
+                qty,
                 voucherCode: appliedVoucher ? appliedVoucher.code : undefined
             })});
             const data = await res.json();
             if (data.success) {
-                showToast('Pembelian berhasil! Key sudah didapat.','success');
+                showToast(data.partial ? ('Hanya ' + data.qty + ' dari ' + data.requestedQty + ' key tersedia, sisanya tidak ditagih.') : 'Pembelian berhasil! Key sudah didapat.', data.partial ? 'info' : 'success');
                 setTimeout(() => { window.location.href = '/invoice?code=' + data.code; }, 900);
                 return;
             } else if (data.redirect) {

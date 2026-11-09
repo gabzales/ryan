@@ -2395,6 +2395,41 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
   return { key, outOfStock: !key };
 }
 
+
+// ── Beli banyak sekaligus (qty) ─────────────────────────────────────────
+const MAX_QTY_HARD = 20;
+function parseQty(v, settings) {
+  let n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n < 1) n = 1;
+  const cap = Math.min(MAX_QTY_HARD, Math.max(1, parseInt(settings && settings.maxQtyPerOrder, 10) || 10));
+  return Math.min(n, cap);
+}
+// Hitung stok manual yang bisa dipakai varian ini (tag cocok + generik).
+function countManualKeys(product, days, unit) {
+  const ks = product.keys || [];
+  let tagged = 0, generic = 0;
+  for (const k of ks) {
+    if (!k.includes(':')) { generic++; continue; }
+    const t = parseKeyTag(k);
+    if (days && t.days === days && t.unit === unit) tagged++;
+  }
+  return days ? tagged + generic : generic + (ks.length - generic - tagged);
+}
+// Ambil qty key. Return { keys, error }. Berhenti di kegagalan pertama.
+async function resolveProductKeys(product, selectedDays, settings, ctx, qty) {
+  const keys = [];
+  let error = null;
+  for (let i = 0; i < qty; i++) {
+    const r = await resolveProductKey(product, selectedDays, settings, {
+      ...ctx,
+      idempotencyKey: qty > 1 ? `${ctx.idempotencyKey}-${i + 1}`.slice(0, 64) : ctx.idempotencyKey
+    });
+    if (!r.key) { error = r.error || 'Stok habis'; break; }
+    keys.push(r.key);
+  }
+  return { keys, error };
+}
+
 app.post('/wallet/buy', requireAuth, async (req, res) => {
   // Cegah race condition double-spend: tolak request kedua kalau request
   // sebelumnya dari user yang sama masih diproses (lihat komentar di
@@ -2415,6 +2450,7 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
   try {
     if (req.session.isAdmin) return res.json({ success: false, message: 'Admin tidak bisa membeli produk' });
     const { productId, duration, customerName, wa, voucherCode } = req.body;
+    const qty = parseQty(req.body.qty, readDB('settings.json'));
 
     const users = await readFresh('users.json');
     const user = users.find(u => u.id === req.session.userId);
@@ -2458,6 +2494,9 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
       return res.json({ success: false, message: 'Stok habis' });
     }
+    if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && countManualKeys(product, selectedDays, selectedUnit) < qty) {
+      return res.json({ success: false, message: `Stok tidak cukup untuk ${qty} key. Kurangi jumlah beli.` });
+    }
     if (await isVariantProviderOut(product, selectedDays, selectedUnit, res.locals.settings || await readFresh('settings.json'))) {
       return res.json({ success: false, message: 'Stok habis' });
     }
@@ -2482,6 +2521,9 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
       }
     }
 
+    const unitPrice = price;
+    price = unitPrice * qty;
+
     // Terapkan voucher (setelah diskon reseller) — opsional, sama seperti /create-order
     let voucherDiscount = 0, appliedVoucher = null, originalPrice = price;
     if (voucherCode && voucherCode.trim()) {
@@ -2504,22 +2546,25 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     // Ambil key — mode manual (stok lokal, duration-specific KEY:DAYS
     // fallback generic seperti sebelumnya) ATAU mode auto (generate
     // on-demand dari Reseller API). Lihat resolveProductKey() untuk detail.
-    const keyResult = await resolveProductKey(product, selectedDays, settings, {
+    const keysRes = await resolveProductKeys(product, selectedDays, settings, {
       selectedUnit,
       customerReference: customerName || user.username,
       target: wa || undefined,
       idempotencyKey: `wallet-${req.session.userId}-${productId}-${uuidv4()}`
-    });
-    if (!keyResult.key) {
-      return res.json({ success: false, message: keyResult.error || 'Stok habis' });
+    }, qty);
+    if (!keysRes.keys.length) {
+      return res.json({ success: false, message: keysRes.error || 'Stok habis' });
     }
-    const key = keyResult.key;
+    const gotQty = keysRes.keys.length;
+    const key = keysRes.keys.join('\n');
+    // Kalau cuma sebagian key yang berhasil didapat, bayar proporsional.
+    if (gotQty < qty) price = Math.max(0, Math.round(price * gotQty / qty));
 
     // Potong saldo & catat transaksi — lakukan setelah key berhasil diambil
     user.balance = balance - price;
     // Fitur Game Koin: 1 order sukses = 1 koin (lihat juga /check-payment untuk jalur QRIS)
-    user.coins = (user.coins || 0) + 1;
-    product.sold = (product.sold || 0) + 1;
+    user.coins = (user.coins || 0) + gotQty;
+    product.sold = (product.sold || 0) + gotQty;
     await writeDB('users.json', users);
     await writeDB('products.json', products);
 
@@ -2529,8 +2574,8 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
     transactions.push({
       id: refId, orderId: `WLT-${Date.now()}`, code: orderCode,
       userId: user.id, productId: product.id, productName: product.name,
-      duration, selectedDays, selectedUnit,
-      originalPrice: voucherDiscount > 0 ? originalPrice : undefined,
+      duration, selectedDays, selectedUnit, qty: gotQty,
+      originalPrice: voucherDiscount > 0 ? originalPrice * qty : undefined,
       voucherCode: appliedVoucher ? appliedVoucher.code : undefined,
       voucherDiscount: voucherDiscount > 0 ? voucherDiscount : undefined,
       price, totalPayment: price, paymentMethod: 'wallet',
@@ -2557,7 +2602,7 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
       price, time: new Date().toISOString(), timeStr: formatDate() });
     await writeDB('notifications.json', notifs.slice(0, 50));
 
-    res.json({ success: true, key, code: orderCode, balance: user.balance, voucherDiscount: voucherDiscount || undefined });
+    res.json({ success: true, key, qty: gotQty, requestedQty: qty, partial: gotQty < qty, code: orderCode, balance: user.balance, voucherDiscount: voucherDiscount || undefined });
   } catch (e) {
     console.error('[wallet/buy] error:', e.message);
     res.json({ success: false, message: 'Terjadi kesalahan: ' + e.message });
@@ -3037,6 +3082,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
     const { productId, duration, customerName, wa, voucherCode } = req.body;
     const products = await readFresh('products.json');
     const product = products.find(p => p.id === productId);
+    const qty = parseQty(req.body.qty, await readFresh('settings.json'));
 
     if (!product || product.status !== 'active') return res.json({ success: false, message: 'Produk tidak ditemukan' });
     // Produk dengan stockSource 'ghostseller' (per-varian) generate key
@@ -3063,6 +3109,9 @@ app.post('/create-order', requireAuth, async (req, res) => {
     if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && (!product.keys || product.keys.length === 0)) {
       return res.json({ success: false, message: 'Stok habis' });
     }
+    if (!isAutoStockSource(resolveStockSourceForDays(product, selectedDays, selectedUnit)) && countManualKeys(product, selectedDays, selectedUnit) < qty) {
+      return res.json({ success: false, message: `Stok tidak cukup untuk ${qty} key. Kurangi jumlah beli.` });
+    }
     if (await isVariantProviderOut(product, selectedDays, selectedUnit, res.locals.settings || await readFresh('settings.json'))) {
       return res.json({ success: false, message: 'Stok habis' });
     }
@@ -3088,6 +3137,8 @@ app.post('/create-order', requireAuth, async (req, res) => {
         price = Math.round(price * (1 - disc / 100));
       }
     }
+
+    price = price * qty;
 
     // Terapkan voucher (setelah diskon reseller)
     let voucherDiscount = 0, appliedVoucher = null, originalPrice = price;
@@ -3146,7 +3197,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
     transactions.push({
       id: refId, orderId, code: orderCode,
       userId: req.session.userId, productId: product.id, productName: product.name,
-      duration, selectedDays, selectedUnit,
+      duration, selectedDays, selectedUnit, qty,
       originalPrice: voucherDiscount > 0 ? originalPrice : undefined,
       voucherCode: appliedVoucher ? appliedVoucher.code : undefined,
       voucherDiscount: voucherDiscount > 0 ? voucherDiscount : undefined,
@@ -3264,6 +3315,7 @@ async function finalizeConfirmedPayment(refId) {
     let key = null;
     let outOfStock = false;
     let keyError = null;
+    let gotKeys = 0, partialMsg = null;
 
     if (product) {
       // idempotencyKey = freshTx.id (STABIL per transaksi) — penting untuk
@@ -3272,25 +3324,28 @@ async function finalizeConfirmedPayment(refId) {
       // akan mengenali Idempotency-Key yang sama dan me-return response yang
       // sama persis alih-alih generate key baru / motong saldo reseller lagi.
       const settingsForKey = await readFresh('settings.json');
-      const keyResult = await resolveProductKey(product, freshTx.selectedDays, settingsForKey, {
+      const wantQty = Math.max(1, parseInt(freshTx.qty, 10) || 1);
+      const keysRes = await resolveProductKeys(product, freshTx.selectedDays, settingsForKey, {
         selectedUnit: txUnit(freshTx),
         customerReference: freshTx.customerName || freshTx.code,
         target: freshTx.wa || undefined,
         idempotencyKey: freshTx.id
-      });
-      key = keyResult.key;
-      outOfStock = keyResult.outOfStock && !key;
-      keyError = keyResult.error || null;
+      }, wantQty);
+      gotKeys = keysRes.keys.length;
+      key = gotKeys ? keysRes.keys.join('\n') : null;
+      outOfStock = !key;
+      keyError = keysRes.error || null;
+      if (key && gotKeys < wantQty) partialMsg = `Hanya ${gotKeys} dari ${wantQty} key terkirim. ${keyError || ''}`.trim();
     }
 
     if (key) {
-      product.sold = (product.sold || 0) + 1;
+      product.sold = (product.sold || 0) + gotKeys;
       await writeDB('products.json', products);
       // Fitur Game Koin: 1 order sukses = 1 koin
       const usersForCoin = await readFresh('users.json');
       const buyerForCoin = usersForCoin.find(u => u.id === freshTx.userId);
       if (buyerForCoin) {
-        buyerForCoin.coins = (buyerForCoin.coins || 0) + 1;
+        buyerForCoin.coins = (buyerForCoin.coins || 0) + gotKeys;
         await writeDB('users.json', usersForCoin);
       }
     } else {
@@ -3304,15 +3359,17 @@ async function finalizeConfirmedPayment(refId) {
     // Simpan alasan spesifik (kalau ada, mis. error dari Reseller API) supaya
     // admin bisa lihat detail penyebabnya di panel, bukan cuma tahu "gagal"
     // tanpa konteks. Dipakai badge "❌ Gagal (Stok Habis)" di admin.ejs.
-    freshTx.stockError = outOfStock ? (keyError || 'Stok habis - tidak ada key tersedia untuk produk ini') : null;
+    freshTx.stockError = outOfStock ? (keyError || 'Stok habis - tidak ada key tersedia untuk produk ini') : (partialMsg || null);
+    if (key && gotKeys < (freshTx.qty || 1)) { freshTx.deliveredQty = gotKeys; freshTx.partial = true; }
     freshTx.paidAt = new Date().toISOString();
     if (idxTx !== -1) transactionsRecheck[idxTx] = freshTx;
     await writeDB('transactions.json', transactionsRecheck);
 
-    if (outOfStock) {
+    if (outOfStock || partialMsg) {
       const settingsForNotif = await readFresh('settings.json');
-      const reasonLine = keyError ? `Alasan: ${keyError}\n\n` : '\n';
-      const waMsg = `⚠️ STOK HABIS - Pesanan butuh diproses manual!\n\n` +
+      const reasonLine = (partialMsg || keyError) ? `Alasan: ${partialMsg || keyError}\n\n` : '\n';
+      const waMsg = `⚠️ ${partialMsg ? 'STOK KURANG (PARSIAL)' : 'STOK HABIS'} - Pesanan butuh diproses manual!\n\n` +
+        (freshTx.qty > 1 ? `Qty: ${freshTx.qty}\n` : '') +
         `Order: ${freshTx.code}\n` +
         `Produk: ${freshTx.productName}\n` +
         `Customer: ${freshTx.customerName} (${freshTx.wa || '-'})\n` +
@@ -5446,24 +5503,30 @@ app.post('/admin/transaction/confirm/:id', requireAdmin, async (req, res) => {
       // idempotencyKey = transaction.id (stabil) — supaya kalau admin klik
       // konfirmasi 2x karena double-tap, produk mode 'auto' tidak generate
       // 2 key / motong saldo reseller 2x untuk transaksi yang sama.
-      const keyResult = await resolveProductKey(product, transaction.selectedDays, settingsForKey, {
+      const wantQty = Math.max(1, parseInt(transaction.qty, 10) || 1);
+      const keysRes = await resolveProductKeys(product, transaction.selectedDays, settingsForKey, {
         selectedUnit: txUnit(transaction),
         customerReference: transaction.customerName || transaction.code,
         target: transaction.wa || undefined,
         idempotencyKey: transaction.id
-      });
-      key = keyResult.key;
-      keyError = keyResult.error || null;
+      }, wantQty);
+      key = keysRes.keys.length ? keysRes.keys.join('\n') : null;
+      keyError = keysRes.error || null;
       if (key) {
-        product.sold = (product.sold || 0) + 1;
+        product.sold = (product.sold || 0) + keysRes.keys.length;
         await writeDB('products.json', products);
+        if (keysRes.keys.length < wantQty) {
+          transaction.partial = true;
+          transaction.deliveredQty = keysRes.keys.length;
+          keyError = `Hanya ${keysRes.keys.length} dari ${wantQty} key terkirim. ${keyError || ''}`.trim();
+        }
       }
     }
 
     transaction.status = 'done';
     transaction.key = key;
     transaction.outOfStock = !key;
-    transaction.stockError = key ? null : (keyError || 'Stok habis - tidak ada key tersedia untuk produk ini');
+    transaction.stockError = key ? (transaction.partial ? keyError : null) : (keyError || 'Stok habis - tidak ada key tersedia untuk produk ini');
     transaction.paidAt = new Date().toISOString();
     transaction.confirmedBy = 'admin';
     await writeDB('transactions.json', transactions);
