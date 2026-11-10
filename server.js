@@ -1230,7 +1230,7 @@ async function providerAvailability(product, settings) {
     opts.forEach((o, i) => {
       if (o.stockSource === 'thanhub' && o.thanhubVariantId) {
         const v = thMap.get(Number(o.thanhubVariantId));
-        if (v && (v.available === false || v.stock === 0)) out[i] = true;
+        if (v && (v.offline || v.available === false || v.stock === 0)) out[i] = true;
       }
       if (o.stockSource === 'vipbestmods' && o.vipItemId) {
         const v = vipMap.get(Number(o.vipItemId));
@@ -5085,6 +5085,19 @@ app.post('/admin/settings/thanhub-api', requireAdmin, async (req, res) => {
 });
 
 // Katalog varian Thanhub untuk dropdown mapping di Edit Produk (cache 3 menit).
+// Debug: tampilkan JSON MENTAH katalog Thanhub (filter ?q=nama) supaya bentuk
+// field stok bisa dicek langsung.
+app.get('/admin/thanhub-api/raw', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const r = await thanhubApi.request_raw(settings, '/products');
+    if (!r.success) return res.json(r);
+    const list = Array.isArray(r.data) ? r.data : (r.data && (r.data.products || r.data.items || r.data.data)) || [];
+    const q = String(req.query.q || '').toLowerCase();
+    res.json({ success: true, count: list.length, products: q ? list.filter(p => JSON.stringify(p).toLowerCase().includes(q)).slice(0, 5) : list.slice(0, 3) });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
 app.get('/admin/thanhub-api/products', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');

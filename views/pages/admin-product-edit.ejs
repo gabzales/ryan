@@ -573,8 +573,8 @@ function renderThanhubOptions(selectedId) {
     html += `<option value="${selectedId}" selected>Varian #${selectedId} (tidak ada di katalog)</option>`;
   }
   return html + thanhubList.map(v => {
-    const stock = v.stock == null ? '' : (' · stok ' + v.stock);
-    const off = (!v.available || v.stock === 0) ? ' [HABIS]' : '';
+    const stock = v.stock == null ? ' · stok ?' : (' · stok ' + v.stock);
+    const off = v.offline ? ' [MAINTENANCE: ' + esc(v.product_status) + ']' : (v.stock === 0 ? ' [HABIS]' : '');
     return `<option value="${v.id}" ${Number(v.id) === Number(selectedId) ? 'selected' : ''}>${esc(v.product_name)} — ${esc(v.label)} · Rp ${Number(v.price||0).toLocaleString('id-ID')}${stock}${off}</option>`;
   }).join('');
 }

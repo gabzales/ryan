@@ -77,26 +77,52 @@ const getBalance = (settings) => request(getConfig(settings), { path: '/balance'
 // GET /products -> daftar produk + varian. Bentuk persisnya tidak dijamin dokumen,
 // jadi diratakan secara toleran jadi daftar varian:
 //   { id, legacy_id, label, price, stock, product_id, product_name, available }
+// Baca stok dari berbagai kemungkinan nama field / bentuk (angka, string angka,
+// objek bersarang). Return angka, atau null kalau memang tidak ada datanya.
+function readStock(v, p) {
+  const toNum = (x) => {
+    if (x == null || x === '') return null;
+    if (typeof x === 'number') return Number.isFinite(x) ? x : null;
+    if (typeof x === 'string') { const n = Number(x.replace(/[^\d.-]/g, '')); return x.trim() !== '' && Number.isFinite(n) && /\d/.test(x) ? n : null; }
+    if (typeof x === 'object') {
+      for (const k of ['available', 'count', 'qty', 'quantity', 'total', 'remaining', 'value']) {
+        const n = toNum(x[k]); if (n != null) return n;
+      }
+    }
+    return null;
+  };
+  for (const k of ['stock', 'stock_count', 'stok', 'available_stock', 'stock_available', 'quantity', 'qty', 'available_qty']) {
+    if (v[k] !== undefined) { const n = toNum(v[k]); if (n != null) return n; }
+  }
+  return null;
+}
+
 function flattenCatalog(data) {
   const list = Array.isArray(data) ? data
     : (data && Array.isArray(data.products)) ? data.products
-    : (data && Array.isArray(data.items)) ? data.items : [];
+    : (data && Array.isArray(data.items)) ? data.items
+    : (data && data.data && Array.isArray(data.data.products)) ? data.data.products
+    : (data && Array.isArray(data.data)) ? data.data : [];
   const out = [];
   for (const p of list) {
     const variants = Array.isArray(p.variants) ? p.variants : (Array.isArray(p.items) ? p.items : (Array.isArray(p.options) ? p.options : []));
     const pName = p.name || p.title || p.product || ('Produk ' + (p.id ?? ''));
-    const available = p.status ? p.status === 'available' : true;
+    const productStatus = p.status ? String(p.status) : 'available';
+    const productOffline = productStatus !== 'available';
     for (const v of variants) {
       if (v == null || v.id == null) continue;
+      const vOffline = v.status ? String(v.status) !== 'available' && String(v.status) !== 'active' : (v.available === false);
       out.push({
         id: v.id,
         legacy_id: v.legacy_id ?? null,
         label: v.label || v.name || ('Varian ' + v.id),
         price: Number(v.price || 0),
-        stock: v.stock == null ? null : Number(v.stock),
+        stock: readStock(v, p),
         product_id: p.id ?? null,
         product_name: pName,
-        available
+        product_status: productStatus,
+        offline: productOffline || vOffline,
+        available: !(productOffline || vOffline)
       });
     }
   }
@@ -174,5 +200,5 @@ function customerMessage(code) {
 
 module.exports = {
   normalizeBaseUrl, getConfig, isConfigured, getBalance, getVariants, flattenCatalog,
-  makeRef, orderKey, customerMessage
+  makeRef, orderKey, customerMessage, request_raw: (settings, path) => request(getConfig(settings), { path })
 };
