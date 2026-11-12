@@ -4636,6 +4636,32 @@ app.post('/admin/product/keys/:id', requireAdmin, async (req, res) => {
   }catch(e){res.json({success:false,message:e.message});}
 });
 
+// Pindah urutan produk (tampil di toko mengikuti urutan array products.json).
+// dir: 'top' = paling atas; 'up'/'down' = tukar posisi dengan produk tetangga
+// (neighborId dikirim client supaya tetap benar saat daftar sedang difilter).
+app.post('/admin/product/move/:id', requireAdmin, async (req, res) => {
+  try {
+    const { dir, neighborId } = req.body || {};
+    const products = await readFresh('products.json');
+    const i = products.findIndex(p => p.id === req.params.id);
+    if (i === -1) return res.json({ success: false, message: 'Produk tidak ditemukan' });
+    if (dir === 'top') {
+      const [it] = products.splice(i, 1); products.unshift(it);
+    } else if (dir === 'bottom') {
+      const [it] = products.splice(i, 1); products.push(it);
+    } else if (dir === 'up' || dir === 'down') {
+      const j = products.findIndex(p => p.id === neighborId);
+      if (j === -1) return res.json({ success: false, message: 'Produk tetangga tidak ditemukan, muat ulang halaman' });
+      if ((dir === 'up' && j > i) || (dir === 'down' && j < i)) return res.json({ success: false, message: 'Urutan sudah berubah, muat ulang halaman' });
+      const [it] = products.splice(i, 1);
+      const j2 = products.findIndex(p => p.id === neighborId);
+      products.splice(dir === 'up' ? j2 : j2 + 1, 0, it);
+    } else return res.json({ success: false, message: 'Arah tidak valid' });
+    await writeDB('products.json', products);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
 app.post('/admin/product/delete/:id', requireAdmin, async (req, res) => {
   try {
     let products = await readFresh('products.json');
@@ -5932,12 +5958,21 @@ app.get('/admin/product/:id', requireAdmin, async (req, res) => {
 // Admin Update Product (image, status, keys)
 app.post('/admin/product/:id', requireAdmin, async (req, res) => {
   try {
-    const { items, bannerUrl, status, keys, keysMode, platforms, operationalStatus, stockMode, resellerItemId } = req.body;
+    const { items, bannerUrl, status, keys, keysMode, platforms, operationalStatus, stockMode, resellerItemId, name } = req.body;
     const products = await readFresh('products.json');
     const productIndex = products.findIndex(p => p.id === req.params.id);
 
     if (productIndex === -1) return res.json({ success: false, message: 'Produk tidak ditemukan' });
     const p = products[productIndex];
+
+    // Rename produk (tanpa hapus + tambah ulang). Label paket (p.items[].l)
+    // dibangun dari nama, jadi ikut dibangun ulang dari pricingOptions.
+    if (typeof name === 'string' && name.trim() && name.trim() !== p.name) {
+      p.name = name.trim().slice(0, 120);
+      if (Array.isArray(p.pricingOptions) && p.pricingOptions.length) {
+        p.items = p.pricingOptions.map(o => ({ l: buildItemLabel(p.name, o.days, unitOf(o)), p: o.price, reseller_price: o.reseller_price }));
+      }
+    }
 
     // Simpan ke image (yang dibaca frontend) DAN bannerUrl
     if (bannerUrl && bannerUrl.trim()) {

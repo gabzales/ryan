@@ -358,6 +358,11 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                 <% } %>
             </div>
             <div class="flex flex-col gap-1.5 flex-shrink-0">
+                <div class="flex gap-1 justify-between">
+                    <button type="button" onclick="moveProduct('<%= p.id %>','top',this)" title="Ke paling atas" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(124,47,214,.15);border:1px solid rgba(124,47,214,.35);color:#c084fc"><iconify-icon icon="mdi:chevron-double-up"></iconify-icon></button>
+                    <button type="button" onclick="moveProduct('<%= p.id %>','up',this)" title="Naik" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#d4d4d8"><iconify-icon icon="mdi:chevron-up"></iconify-icon></button>
+                    <button type="button" onclick="moveProduct('<%= p.id %>','down',this)" title="Turun" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#d4d4d8"><iconify-icon icon="mdi:chevron-down"></iconify-icon></button>
+                </div>
                 <a href="/admin/product-edit?id=<%= p.id %>" class="btn-warning py-1 px-2 text-[10px] text-center">
                     <iconify-icon icon="mdi:pencil"></iconify-icon> Edit
                 </a>
@@ -2458,7 +2463,12 @@ function renderProductCardHTML(p) {
             ${minPrice > 0 ? `<div class="text-[10px] text-purple-400 font-bold mt-0.5">Mulai Rp ${minPrice.toLocaleString('id-ID')}</div>` : ''}
         </div>
         <div class="flex flex-col gap-1.5 flex-shrink-0">
-            <a href="/admin/product-edit?id=${p.id}" class="btn-warning py-1 px-2 text-[10px] text-center"><iconify-icon icon="mdi:pencil"></iconify-icon> Edit</a>
+            <div class="flex gap-1 justify-between">
+                    <button type="button" onclick="moveProduct('${p.id}','top',this)" title="Ke paling atas" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(124,47,214,.15);border:1px solid rgba(124,47,214,.35);color:#c084fc"><iconify-icon icon="mdi:chevron-double-up"></iconify-icon></button>
+                    <button type="button" onclick="moveProduct('${p.id}','up',this)" title="Naik" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#d4d4d8"><iconify-icon icon="mdi:chevron-up"></iconify-icon></button>
+                    <button type="button" onclick="moveProduct('${p.id}','down',this)" title="Turun" class="py-1 px-1.5 text-[11px] rounded-lg flex-1" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#d4d4d8"><iconify-icon icon="mdi:chevron-down"></iconify-icon></button>
+                </div>
+                <a href="/admin/product-edit?id=${p.id}" class="btn-warning py-1 px-2 text-[10px] text-center"><iconify-icon icon="mdi:pencil"></iconify-icon> Edit</a>
             <button data-pid="${p.id}" data-name="${nameAttr}" data-count="${keys.length}" data-pricing="${pricingJsonAttr}"
                 onclick="openAddKeysModal(this.dataset.pid, this.dataset.name, parseInt(this.dataset.count), this.dataset.pricing)"
                 class="btn-success py-1 px-2 text-[10px]"><iconify-icon icon="mdi:key-plus"></iconify-icon> Key</button>
@@ -2469,6 +2479,24 @@ function renderProductCardHTML(p) {
             <button onclick="deleteProduct('${p.id}')" class="btn-danger py-1 px-2 text-[10px]"><iconify-icon icon="mdi:trash-can"></iconify-icon></button>
         </div>
     </div>`;
+}
+
+async function moveProduct(id, dir, btn) {
+    const card = btn.closest('.prod-card');
+    const list = card && card.parentElement;
+    if (!card || !list) return;
+    let neighborId = null;
+    if (dir === 'up' && card.previousElementSibling && card.previousElementSibling.dataset.productId) neighborId = card.previousElementSibling.dataset.productId;
+    if (dir === 'down' && card.nextElementSibling && card.nextElementSibling.dataset.productId) neighborId = card.nextElementSibling.dataset.productId;
+    if (dir !== 'top' && !neighborId) { toast(dir === 'up' ? 'Sudah paling atas' : 'Sudah paling bawah (di daftar yang tampil)', 'info'); return; }
+    if (dir === 'top' && list.firstElementChild === card) { toast('Sudah paling atas', 'info'); return; }
+    const d = await api('/admin/product/move/' + id, { dir, neighborId });
+    if (!d.success) { toast(d.message || 'Gagal memindah', 'error'); return; }
+    if (dir === 'top') list.insertBefore(card, list.firstElementChild);
+    else if (dir === 'up') list.insertBefore(card, card.previousElementSibling);
+    else list.insertBefore(card.nextElementSibling, card);
+    card.style.transition = 'box-shadow .3s'; card.style.boxShadow = '0 0 0 2px rgba(168,85,247,.7)';
+    setTimeout(() => { card.style.boxShadow = ''; }, 700);
 }
 
 async function loadMoreProducts() {
