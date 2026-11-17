@@ -11,8 +11,9 @@ const crypto = require('crypto');
 const ghostSellerApi = require('./ghostseller-api');
 const vipBestModsApi = require('./vipbestmods-api');
 const thanhubApi = require('./thanhub-api');
+const dripApi = require('./drip-api');
 // Sumber stok 'auto' (key dipesan live ke provider): ghostseller, vipbestmods & thanhub -> dianggap unlimited.
-const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods' || v === 'thanhub';
+const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods' || v === 'thanhub' || v === 'drip';
 // reseller-api.js (vipibmstore) dicabut total -- file-nya udah dihapus dari
 // repo. Auto-restock sekarang cuma lewat GhostSeller (ghostseller-api.js).
 
@@ -1183,18 +1184,19 @@ const sendWhatsAppNotif = (target, message, settings) => {
 // FITUR: peringatan saldo provider, varian habis otomatis, notif stok kembali
 // ══════════════════════════════════════════════════════════════
 const BAL_COOLDOWN_MS = 6 * 3600 * 1000;
-const PROVIDER_LABEL = { vipbestmods: 'VIPBestMods', thanhub: 'Thanhub' };
+const PROVIDER_LABEL = { vipbestmods: 'VIPBestMods', thanhub: 'Thanhub', drip: 'Drip' };
 
 // Dipanggil setelah tiap order provider (saldo terbaru) / saat saldo habis.
 // Saldo <= batas -> WA ke admin via Fonnte (maks 1x per 6 jam per provider).
 async function checkProviderBalance(provider, balance, { force = false } = {}) {
+  const usd = provider === 'drip'; // saldo Drip dalam USD, batas terpisah (balanceAlert.thresholdUsd, default 3)
   try {
     const bal = Number(balance);
     if (balance === null || balance === undefined || !Number.isFinite(bal)) return;
     const settings = await readSmart('settings.json');
     const cfg = settings.balanceAlert || {};
     if (cfg.enabled === false) return;
-    const threshold = Number.isFinite(Number(cfg.threshold)) ? Number(cfg.threshold) : 50000;
+    const threshold = usd ? (Number.isFinite(Number(cfg.thresholdUsd)) ? Number(cfg.thresholdUsd) : 3) : (Number.isFinite(Number(cfg.threshold)) ? Number(cfg.threshold) : 50000);
     if (!force && bal > threshold) return;
     const last = Number(settings.balanceAlertState?.[provider]?.at || 0);
     if (Date.now() - last < (force ? 30 * 60 * 1000 : BAL_COOLDOWN_MS)) return;
@@ -1202,7 +1204,7 @@ async function checkProviderBalance(provider, balance, { force = false } = {}) {
     fresh.balanceAlertState = { ...(fresh.balanceAlertState || {}), [provider]: { at: Date.now(), balance: bal } };
     await writeDB('settings.json', fresh);
     const label = PROVIDER_LABEL[provider] || provider;
-    const msg = `[PERINGATAN SALDO]\nSaldo reseller ${label} tinggal Rp ${bal.toLocaleString('id-ID')} (batas Rp ${threshold.toLocaleString('id-ID')}).\nSegera topup supaya order pembeli tidak gagal terkirim.`;
+    const msg = `[PERINGATAN SALDO]\nSaldo reseller ${label} tinggal ${usd ? '$' + bal.toFixed(2) : 'Rp ' + bal.toLocaleString('id-ID')} (batas ${usd ? '$' + threshold : 'Rp ' + threshold.toLocaleString('id-ID')}).\nSegera topup supaya order pembeli tidak gagal terkirim.`;
     await Promise.race([
       sendWhatsAppNotif(fresh.contact?.whatsapp, msg, fresh),
       new Promise(r => setTimeout(r, 6000))
@@ -1219,17 +1221,24 @@ async function providerAvailability(product, settings) {
     const opts = Array.isArray(product?.pricingOptions) ? product.pricingOptions : [];
     const needTh = opts.some(o => o.stockSource === 'thanhub');
     const needVip = opts.some(o => o.stockSource === 'vipbestmods');
-    if (!needTh && !needVip) return out;
+    const needDrip = opts.some(o => o.stockSource === 'drip');
+    if (!needTh && !needVip && !needDrip) return out;
     const withTimeout = (p) => Promise.race([p, new Promise(r => setTimeout(() => r(null), 2500))]);
-    const [th, vip] = await Promise.all([
+    const [th, vip, drip] = await Promise.all([
       needTh ? withTimeout(thanhubApi.getVariants(settings)) : null,
-      needVip ? withTimeout(vipBestModsApi.getProducts(settings)) : null
+      needVip ? withTimeout(vipBestModsApi.getProducts(settings)) : null,
+      needDrip ? withTimeout(dripApi.getVariants(settings)) : null
     ]);
+    const dripMap = new Map(); if (drip && drip.success) drip.data.forEach(v => dripMap.set(String(v.id), v));
     const thMap = new Map(); if (th && th.success) th.data.forEach(v => thMap.set(Number(v.id), v));
     const vipMap = new Map(); if (vip && vip.success) vip.data.forEach(v => vipMap.set(Number(v.id), v));
     opts.forEach((o, i) => {
       if (o.stockSource === 'thanhub' && o.thanhubVariantId) {
         const v = thMap.get(Number(o.thanhubVariantId));
+        if (v && (v.offline || v.available === false || v.stock === 0)) out[i] = true;
+      }
+      if (o.stockSource === 'drip' && o.dripSku) {
+        const v = dripMap.get(String(o.dripSku));
         if (v && (v.offline || v.available === false || v.stock === 0)) out[i] = true;
       }
       if (o.stockSource === 'vipbestmods' && o.vipItemId) {
@@ -1242,7 +1251,7 @@ async function providerAvailability(product, settings) {
 }
 async function isVariantProviderOut(product, days, unit, settings) {
   const opt = findPricingOpt(product, days, unit);
-  if (!opt || (opt.stockSource !== 'thanhub' && opt.stockSource !== 'vipbestmods')) return false;
+  if (!opt || (opt.stockSource !== 'thanhub' && opt.stockSource !== 'vipbestmods' && opt.stockSource !== 'drip')) return false;
   const map = await providerAvailability(product, settings);
   return !!map[product.pricingOptions.indexOf(opt)];
 }
@@ -1944,6 +1953,11 @@ app.get('/admin/provider-balances', requireAdmin, async (req, res) => {
         const n = r.success ? Number(r.data && r.data.balance) : null;
         providers.push({ key: 'thanhub', label: 'Thanhub', balance: Number.isFinite(n) ? n : null, error: r.success ? null : `${r.code}: ${String(r.message || '').slice(0, 80)}` });
       }
+      if (dripApi.isConfigured(settings)) {
+        const r = await dripApi.getBalance(settings);
+        const n = r.success ? Number(r.data && r.data.balance) : null;
+        providers.push({ key: 'drip', label: 'Drip', unit: 'usd', balance: Number.isFinite(n) ? n : null, error: r.success ? null : `${r.code}: ${String(r.message || '').slice(0, 80)}` });
+      }
       _balCache = { at: Date.now(), data: providers };
     }
     const rows = await readFresh('restocknotify.json');
@@ -1953,7 +1967,8 @@ app.get('/admin/provider-balances', requireAdmin, async (req, res) => {
       threshold,
       fonnte: !!settings.fonnteToken,
       pendingRestock: (Array.isArray(rows) ? rows : []).filter(r => !r.notifiedAt).length,
-      providers: providers.map(p => ({ ...p, low: p.balance !== null && p.balance <= threshold }))
+      thresholdUsd: Number.isFinite(Number(cfg.thresholdUsd)) ? Number(cfg.thresholdUsd) : 3,
+      providers: providers.map(p => ({ ...p, low: p.balance !== null && p.balance <= (p.unit === 'usd' ? (Number.isFinite(Number(cfg.thresholdUsd)) ? Number(cfg.thresholdUsd) : 3) : threshold) }))
     });
   } catch (e) { res.json({ success: false, message: e.message }); }
 });
@@ -1962,7 +1977,8 @@ app.post('/admin/settings/balance-alert', requireAdmin, async (req, res) => {
     const settings = await readFresh('settings.json');
     const t = parseInt(req.body.threshold);
     if (!Number.isFinite(t) || t < 0) return res.json({ success: false, message: 'Batas saldo tidak valid.' });
-    settings.balanceAlert = { enabled: req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on', threshold: t };
+    const tu = parseFloat(req.body.thresholdUsd);
+    settings.balanceAlert = { enabled: req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on', threshold: t, thresholdUsd: (Number.isFinite(tu) && tu >= 0) ? tu : (Number.isFinite(Number(settings.balanceAlert?.thresholdUsd)) ? Number(settings.balanceAlert.thresholdUsd) : 3) };
     await writeDB('settings.json', settings);
     _balCache = { at: 0, data: null };
     res.json({ success: true });
@@ -2370,6 +2386,27 @@ async function resolveProductKey(product, selectedDays, settings, ctx = {}) {
     console.error('[thanhub] order gagal:', result.code, result.message);
     if (result.code === 'insufficient_balance') { console.error('[thanhub] SALDO RESELLER HABIS -- topup di Thanhub'); await checkProviderBalance('thanhub', 0, { force: true }); }
     return { key: null, outOfStock: true, error: thanhubApi.customerMessage(result.code), code: result.code };
+  }
+
+  // ── Mode 'drip' — auto restock live dari Drip Platform API v1 (model SKU).
+  // Mapping per-varian: dripSku (items[].apiCode dari GET /products).
+  // Idempotency-Key = id transaksi (+ indeks) -> retry tidak pernah memotong saldo 2x.
+  if (stockSource === 'drip') {
+    const opt = findPricingOpt(product, selectedDays, selectedUnit);
+    const sku = opt && opt.dripSku;
+    if (!sku) return { key: null, outOfStock: true, error: 'Varian ini belum di-mapping ke Drip (pilih SKU di Edit Produk).' };
+    const result = await dripApi.orderKeys(settings, { sku, quantity: 1, idempotencyKey: ctx.idempotencyKey });
+    if (result.success) {
+      const key = result.data?.codes?.[0] || null;
+      try {
+        const b = await Promise.race([dripApi.getBalance(settings), new Promise(r => setTimeout(() => r(null), 2500))]);
+        if (b && b.success) await checkProviderBalance('drip', b.data.balance);
+      } catch (e) { /* abaikan */ }
+      return { key, outOfStock: !key, error: key ? null : 'Drip tidak mengembalikan key' };
+    }
+    console.error('[drip] order gagal:', result.code, result.message);
+    if (result.code === 'INSUFFICIENT_BALANCE') { console.error('[drip] SALDO HABIS -- topup di Drip'); await checkProviderBalance('drip', 0, { force: true }); }
+    return { key: null, outOfStock: true, error: dripApi.customerMessage(result.code), code: result.code };
   }
 
   // ── Mode manual (untuk varian ini spesifik) — logika lama, TIDAK diubah ──
@@ -5111,6 +5148,45 @@ app.post('/admin/settings/thanhub-api', requireAdmin, async (req, res) => {
 });
 
 // Katalog varian Thanhub untuk dropdown mapping di Edit Produk (cache 3 menit).
+// ── Drip Platform API v1 — simpan kredensial + tes koneksi (saldo + katalog) ──
+app.post('/admin/settings/drip-api', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const old = settings.dripApi || {};
+    const { apiKey, baseUrl } = req.body;
+    const next = {
+      apiKey: (apiKey !== undefined && String(apiKey).trim() !== '') ? String(apiKey).trim() : (old.apiKey || ''),
+      baseUrl: dripApi.normalizeBaseUrl(baseUrl !== undefined && String(baseUrl).trim() ? baseUrl : (old.baseUrl || ''))
+    };
+    const tmp = { dripApi: next };
+    const steps = [];
+    let ok = true;
+    if (!next.apiKey) {
+      steps.push({ step: 'config', ok: false, message: 'API Key belum diisi.' });
+      ok = false;
+    } else {
+      steps.push({ step: 'config', ok: true, message: 'Konfigurasi terisi.' });
+      const bal = await dripApi.getBalance(tmp);
+      steps.push({ step: 'balance', ok: bal.success, message: bal.success ? `Saldo Drip: $${Number(bal.data?.balance || 0).toFixed(2)}` : dripApi.customerMessage(bal.code) + ` (${bal.code})` });
+      if (!bal.success) ok = false;
+      const prods = await dripApi.getVariants(tmp, { force: true });
+      steps.push({ step: 'products', ok: prods.success, message: prods.success ? `${prods.data.length} SKU di katalog.` : dripApi.customerMessage(prods.code) + ` (${prods.code})` });
+      if (!prods.success) ok = false;
+    }
+    settings.dripApi = { ...next, lastTestStatus: ok ? 'ok' : 'failed', lastTestAt: new Date().toISOString(), lastTestMessage: ok ? null : (steps.find(x => !x.ok)?.message || 'Koneksi gagal') };
+    await writeDB('settings.json', settings);
+    res.json({ success: true, testSuccess: ok, steps, baseUrl: next.baseUrl });
+  } catch (error) { res.json({ success: false, message: error.message }); }
+});
+app.get('/admin/drip-api/products', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const result = await dripApi.getVariants(settings, { force: req.query.refresh === '1' });
+    if (!result.success) return res.json({ success: false, message: dripApi.customerMessage(result.code), code: result.code });
+    res.json({ success: true, variants: result.data || [] });
+  } catch (error) { res.json({ success: false, message: error.message }); }
+});
+
 // Debug: tampilkan JSON MENTAH katalog Thanhub (filter ?q=nama) supaya bentuk
 // field stok bisa dicek langsung.
 app.get('/admin/thanhub-api/raw', requireAdmin, async (req, res) => {
@@ -6044,8 +6120,10 @@ app.post('/admin/product/:id', requireAdmin, async (req, res) => {
           // Mapping Thanhub: id varian WAJIB angka.
           const thNum = Number(o.thanhubVariantId);
           const thanhubVariantId = (o.thanhubVariantId !== null && o.thanhubVariantId !== undefined && o.thanhubVariantId !== '' && Number.isFinite(thNum) && thNum > 0) ? thNum : null;
+          // Mapping Drip: SKU = string apiCode dari katalog.
+          const dripSku = (typeof o.dripSku === 'string' && /^[A-Za-z0-9._:-]{1,100}$/.test(o.dripSku.trim())) ? o.dripSku.trim() : null;
           const unit = ['hari','jam','menit'].includes(o.unit) ? o.unit : 'hari';
-          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, vipItemId, vipStockMode, thanhubVariantId, stockSource: rowStockSource, unit };
+          return { days, price, reseller_price: resellerPrice, ghostSellerProductId, ghostSellerDurationId, vipItemId, vipStockMode, thanhubVariantId, dripSku, stockSource: rowStockSource, unit };
         })
         .filter(o => o.days > 0 && o.price >= 0);
       // FIX BUG "1 Jam ketuker/dobel jadi 1 DAYS": dedup per (days, unit) --
