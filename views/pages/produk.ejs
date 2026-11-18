@@ -37,7 +37,7 @@ const __opts = (product) => {
         </div>
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:800;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= product.name %></div>
-          <div style="font-size:10.5px;font-weight:700;margin-top:2px;color:<%= bad ? '#dc2626' : '#16a34a' %>;"><%= offline ? 'Offline' : (isOut ? 'Stok habis' : 'Tersedia - proses instan') %></div>
+          <div style="font-size:10.5px;font-weight:700;margin-top:2px;color:<%= bad ? '#dc2626' : '#16a34a' %>;"><%= offline ? 'Offline' : (isOut ? 'Stok habis' : 'Tersedia - proses instan') %><% if (product.flash && !bad) { %> <span style="background:#db2777;color:#fff;font-size:9px;font-weight:900;padding:1px 6px;border-radius:5px;margin-left:4px;">FLASH -<%= product.flash.percent %>%</span><% } %></div>
         </div>
         <iconify-icon icon="mdi:chevron-right" style="font-size:20px;color:#94a3b8;"></iconify-icon>
       </a>
@@ -46,7 +46,10 @@ const __opts = (product) => {
         <% opts.forEach((o, i) => { %>
         <tr style="<%= i < opts.length-1 ? 'border-bottom:1px solid #eef1f7;' : '' %>">
           <td style="padding:9px 12px;font-size:12px;font-weight:600;color:#475569;"><%= o.l %></td>
-          <td style="padding:9px 12px;font-size:12.5px;font-weight:900;color:#2563eb;text-align:right;white-space:nowrap;">Rp <%= o.p.toLocaleString('id-ID') %></td>
+          <td style="padding:9px 12px;font-size:12.5px;font-weight:900;color:<%= product.flash ? '#db2777' : '#2563eb' %>;text-align:right;white-space:nowrap;">
+            <% if (product.flash) { %><span style="font-size:10px;font-weight:700;color:#94a3b8;text-decoration:line-through;margin-right:5px;">Rp <%= o.p.toLocaleString('id-ID') %></span>Rp <%= Math.round(o.p * (100 - product.flash.percent) / 100).toLocaleString('id-ID') %>
+            <% } else { %>Rp <%= o.p.toLocaleString('id-ID') %><% } %>
+          </td>
         </tr>
         <% }); %>
       </table>

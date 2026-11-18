@@ -1,0 +1,54 @@
+<%
+const pageTitle = 'Status Layanan';
+const meta = {
+  normal:   { t: 'Normal',     c: '#16a34a', bg: 'rgba(22,163,74,.12)' },
+  sebagian: { t: 'Sebagian',   c: '#d97706', bg: 'rgba(217,119,6,.12)' },
+  habis:    { t: 'Habis',      c: '#dc2626', bg: 'rgba(220,38,38,.12)' },
+  offline:  { t: 'Maintenance', c: '#64748b', bg: 'rgba(100,116,139,.14)' }
+};
+const allGood = summary.sebagian + summary.habis + summary.offline === 0;
+%>
+<%- include('../partials/edot-header') %>
+<div style="padding:16px 16px 40px;">
+<div style="max-width:520px;margin:0 auto;">
+
+  <div style="text-align:center;margin:8px 0 16px;">
+    <h1 style="font-size:20px;font-weight:900;color:var(--text-1);">Status Layanan</h1>
+    <p style="font-size:12px;color:var(--text-3);margin-top:4px;">Cek dulu sebelum beli: produk mana yang ready, mana yang lagi habis atau maintenance.</p>
+  </div>
+
+  <div class="neon-card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+    <span style="width:12px;height:12px;border-radius:50%;background:<%= allGood ? '#16a34a' : '#d97706' %>;box-shadow:0 0 0 4px <%= allGood ? 'rgba(22,163,74,.2)' : 'rgba(217,119,6,.2)' %>;flex-shrink:0;"></span>
+    <div style="flex:1;">
+      <div style="font-weight:800;font-size:14px;color:var(--text-1);"><%= allGood ? 'Semua layanan normal' : 'Ada layanan yang terganggu' %></div>
+      <div style="font-size:11px;color:var(--text-3);"><%= summary.normal %> normal · <%= summary.sebagian %> sebagian · <%= summary.habis %> habis · <%= summary.offline %> maintenance</div>
+    </div>
+  </div>
+
+  <input type="text" class="hm-input" placeholder="Cari produk..." oninput="stFilter(this.value)" style="margin-bottom:12px;">
+
+  <% rows.forEach(function(r){ const m = meta[r.overall] || meta.normal; %>
+  <div class="neon-card st-item" data-q="<%= r.name.toLowerCase() %>" style="padding:12px 14px;margin-bottom:8px;">
+    <a href="/buy/<%= r.id %>" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+      <span style="flex:1;min-width:0;font-weight:800;font-size:13px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= r.name %></span>
+      <span style="font-size:10px;font-weight:900;padding:3px 9px;border-radius:99px;color:<%= m.c %>;background:<%= m.bg %>;"><%= m.t %></span>
+    </a>
+    <% if (r.variants.length && r.overall !== 'normal') { %>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">
+      <% r.variants.forEach(function(v){ const vm = v.status === 'habis' ? meta.habis : meta.normal; %>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;color:<%= vm.c %>;background:<%= vm.bg %>;"><%= v.label %><%= v.status === 'habis' ? ' · habis' : '' %></span>
+      <% }) %>
+    </div>
+    <% } %>
+  </div>
+  <% }) %>
+  <% if (!rows.length) { %><p style="text-align:center;font-size:13px;color:var(--text-3);">Belum ada produk.</p><% } %>
+
+  <p style="text-align:center;font-size:10px;color:var(--text-3);margin-top:14px;">Diperbarui <%= new Date(updatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) %> WIB · otomatis tiap 1 menit</p>
+</div></div>
+<script>
+function stFilter(q){
+  q = String(q||'').toLowerCase().trim();
+  document.querySelectorAll('.st-item').forEach(function(el){ el.style.display = (!q || el.getAttribute('data-q').indexOf(q) > -1) ? '' : 'none'; });
+}
+</script>

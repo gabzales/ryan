@@ -317,6 +317,13 @@ try {
   TW_CSS = require('fs').readFileSync(_twp, 'utf8').replace(/<\/style/gi, '<\\/style'); // di-inline ke <head>: tidak ada request CSS yang memblokir render
 } catch (e) { /* belum dibuild */ }
 
+// Simpan ?ref=KODE dari link ajakan ke session (dipakai saat daftar / login Google pertama).
+app.use((req, res, next) => {
+  const r = req.query && req.query.ref;
+  if (typeof r === 'string' && /^[A-Za-z0-9]{4,12}$/.test(r) && req.session) req.session.ref = r.toUpperCase();
+  next();
+});
+
 // Inject settings + isAdmin ke semua view otomatis
 app.use(async (req, res, next) => {
   // Kalau cache settings kosong, fetch dari Supabase dulu
@@ -1473,7 +1480,7 @@ const toPublicProduct = (p) => {
   if (Array.isArray(rest.pricingOptions)) {
     rest.pricingOptions = rest.pricingOptions.map(({ resellerItemId: _r, ...o }) => o);
   }
-  return { ...rest, keyCount: list.length, taggedKeyCounts, genericKeyCount };
+  return { ...rest, flash: activeFlash(p), keyCount: list.length, taggedKeyCounts, genericKeyCount };
 };
 
 app.get('/', async (req, res) => {
@@ -1720,6 +1727,8 @@ app.post('/register', async (req, res) => {
     balance: 0,
     createdAt: new Date().toISOString()
   };
+  newUser.refCode = genRefCode(users);
+  attachReferrer(newUser, req, users, readDB('settings.json'));
 
   users.push(newUser);
   await writeDB('users.json', users);
@@ -1825,6 +1834,8 @@ app.get('/auth/google/callback', async (req, res) => {
         password: await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10),
         wa: '', photo: null, balance: 0, createdAt: new Date().toISOString()
       };
+      user.refCode = genRefCode(users);
+      attachReferrer(user, req, users, settings);
       users.push(user);
       await writeDB('users.json', users);
     }
@@ -2042,6 +2053,168 @@ function userBoughtKeys(transactions, userId) {
   }
   return out;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// FITUR: Key Saya · Flash Sale · Referral · Status Layanan
+// ═══════════════════════════════════════════════════════════════
+
+// ── Flash sale ──
+// product.flash = { enabled, percent (1-90), endsAt (ISO) }. Aktif selama belum lewat endsAt.
+function activeFlash(p) {
+  const f = p && p.flash;
+  if (!f || !f.enabled) return null;
+  const pct = parseInt(f.percent, 10);
+  const end = Date.parse(f.endsAt);
+  if (!(pct >= 1 && pct <= 90) || !Number.isFinite(end) || end <= Date.now()) return null;
+  return { percent: pct, endsAt: new Date(end).toISOString() };
+}
+function flashPriceOf(p, price) {
+  const f = activeFlash(p);
+  return f ? Math.max(0, Math.round(Number(price) * (100 - f.percent) / 100)) : null;
+}
+
+// ── Referral ──
+const refCfg = (settings) => {
+  const c = (settings && settings.referral) || {};
+  return {
+    enabled: c.enabled === true,
+    bonus: Math.max(0, parseInt(c.bonus, 10) || 2000),
+    minPurchase: Math.max(0, parseInt(c.minPurchase, 10) || 0)
+  };
+};
+function genRefCode(users) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (let n = 0; n < 30; n++) {
+    let c = '';
+    for (let i = 0; i < 6; i++) c += chars[crypto.randomInt(chars.length)];
+    if (!users.some(u => u.refCode === c)) return c;
+  }
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+// Dipanggil saat membuat user baru: kalau session membawa kode referral valid, simpan referredBy.
+function attachReferrer(newUser, req, users, settings) {
+  try {
+    if (!refCfg(settings).enabled) return;
+    const code = String(req.session?.ref || '').toUpperCase();
+    if (!/^[A-Z0-9]{4,12}$/.test(code)) return;
+    const owner = users.find(u => u.refCode === code);
+    if (owner && owner.id !== newUser.id) newUser.referredBy = owner.id;
+  } catch (e) { /* abaikan */ }
+}
+// Setelah pembelian produk sukses: bonus ke pengajak, sekali per user yang diajak.
+async function awardReferral(buyerId, amount) {
+  try {
+    const settings = await readSmart('settings.json');
+    const cfg = refCfg(settings);
+    if (!cfg.enabled || !buyerId) return;
+    if (Number(amount) < cfg.minPurchase) return;
+    const users = await readFresh('users.json');
+    const buyer = users.find(u => u.id === buyerId);
+    if (!buyer || !buyer.referredBy || buyer.referralRewarded) return;
+    const owner = users.find(u => u.id === buyer.referredBy);
+    buyer.referralRewarded = true;
+    if (owner && cfg.bonus > 0) {
+      owner.balance = (owner.balance || 0) + cfg.bonus;
+      owner.refEarned = (owner.refEarned || 0) + cfg.bonus;
+    }
+    await writeDB('users.json', users);
+  } catch (e) { console.error('[referral]', e.message); }
+}
+
+app.get('/referral', requireAuth, async (req, res) => {
+  if (req.session.isAdmin) return res.redirect('/admin');
+  const settings = res.locals.settings || readDB('settings.json');
+  let users = await readFresh('users.json');
+  const me = users.find(u => u.id === req.session.userId);
+  if (!me) return res.redirect('/login');
+  if (!me.refCode) { me.refCode = genRefCode(users); await writeDB('users.json', users); }
+  const invited = users.filter(u => u.referredBy === me.id);
+  const base = (process.env.SITE_URL || ('https://' + req.get('host'))).replace(/\/$/, '');
+  res.render('pages/referral', {
+    settings, user: res.locals.user || me,
+    cfg: refCfg(settings),
+    code: me.refCode,
+    link: base + '/register?ref=' + me.refCode,
+    earned: me.refEarned || 0,
+    invited: invited.map(u => ({ name: u.username.slice(0, 2) + '***' + u.username.slice(-1), rewarded: !!u.referralRewarded, at: u.createdAt })).reverse().slice(0, 30),
+    invitedCount: invited.length
+  });
+});
+
+app.post('/admin/settings/referral', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const bonus = parseInt(req.body.bonus, 10), minPurchase = parseInt(req.body.minPurchase, 10);
+    settings.referral = {
+      enabled: req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on',
+      bonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : 2000,
+      minPurchase: Number.isFinite(minPurchase) && minPurchase >= 0 ? minPurchase : 0
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// ── Key Saya ──
+app.get('/key-saya', requireAuth, async (req, res) => {
+  if (req.session.isAdmin) return res.redirect('/admin');
+  const transactions = await readFresh('transactions.json');
+  const orders = transactions
+    .filter(t => t.userId === req.session.userId && t.status === 'done' && t.key && !NON_PRODUCT_TX.includes(t.type))
+    .map(t => ({
+      code: t.code || '', productName: t.productName || '-', duration: t.duration || '',
+      keys: String(t.key).split(/[\s,;\n]+/).filter(Boolean),
+      at: t.createdAt || t.paidAt || '', time: t.time || '', partial: !!t.partial
+    }))
+    .reverse().slice(0, 100);
+  res.render('pages/key-saya', { settings: res.locals.settings || readDB('settings.json'), user: res.locals.user || getSessionUser(req), orders });
+});
+
+// ── Status layanan (publik) ──
+let _statusCache = { at: 0, data: null };
+async function buildStatusData() {
+  const [products, settings] = await Promise.all([readSmart('products.json'), readSmart('settings.json')]);
+  const rows = [];
+  for (const p of products.filter(x => x.status === 'active')) {
+    const opts = Array.isArray(p.pricingOptions) ? p.pricingOptions : [];
+    const out = await providerAvailability(p, settings);
+    const keys = p.keys || [];
+    const generic = keys.filter(k => !String(k).includes(':')).length;
+    const variants = opts.map((o, i) => {
+      const unit = unitOf(o);
+      let st = 'normal';
+      if (isAutoStockSource(o.stockSource)) { if (out[i]) st = 'habis'; }
+      else {
+        const tagged = keys.filter(k => { const t = parseKeyTag(k); return t.days === o.days && t.unit === unit; }).length;
+        if (tagged + generic === 0) st = 'habis';
+      }
+      return { label: o.days + ' ' + ({ hari: 'Hari', jam: 'Jam', menit: 'Menit' }[unit] || 'Hari'), status: st };
+    });
+    let overall = (p.operationalStatus === 'offline') ? 'offline' : 'normal';
+    if (overall === 'normal' && variants.length && variants.every(v => v.status === 'habis')) overall = 'habis';
+    else if (overall === 'normal' && variants.some(v => v.status === 'habis')) overall = 'sebagian';
+    rows.push({ id: p.id, name: p.name, image: p.image || p.bannerUrl || '', category: p.category || '', overall, variants });
+  }
+  return rows;
+}
+app.get('/status', async (req, res) => {
+  try {
+    if (!_statusCache.data || Date.now() - _statusCache.at > 60000) {
+      _statusCache = { at: Date.now(), data: await buildStatusData() };
+    }
+    const rows = _statusCache.data;
+    const count = (k) => rows.filter(r => r.overall === k).length;
+    res.render('pages/status', {
+      settings: res.locals.settings || readDB('settings.json'),
+      user: res.locals.user || getSessionUser(req),
+      rows, summary: { normal: count('normal'), sebagian: count('sebagian'), habis: count('habis'), offline: count('offline') },
+      updatedAt: _statusCache.at
+    });
+  } catch (e) {
+    console.error('[status]', e.message);
+    res.status(500).send('Gagal memuat status.');
+  }
+});
 
 app.get('/reset-key', requireAuth, async (req, res) => {
   if (req.session.isAdmin) return res.redirect('/admin');
@@ -2558,6 +2731,7 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
       }
     }
 
+    if (variant.flashPrice != null) price = Math.min(price, variant.flashPrice);
     const unitPrice = price;
     price = unitPrice * qty;
 
@@ -2639,6 +2813,7 @@ app.post('/wallet/buy', requireAuth, async (req, res) => {
       price, time: new Date().toISOString(), timeStr: formatDate() });
     await writeDB('notifications.json', notifs.slice(0, 50));
 
+    await awardReferral(req.session.userId, price);
     res.json({ success: true, key, qty: gotQty, requestedQty: qty, partial: gotQty < qty, code: orderCode, balance: user.balance, voucherDiscount: voucherDiscount || undefined });
   } catch (e) {
     console.error('[wallet/buy] error:', e.message);
@@ -3081,7 +3256,7 @@ app.get('/buy/:id', requireAuth, async (req, res) => {
           }
         }
       }
-      return { ...item, stok, reseller_price: computedResellerPrice };
+      return { ...item, stok, reseller_price: computedResellerPrice, flash_price: flashPriceOf(product, item.p) };
     });
   }
 
@@ -3175,6 +3350,7 @@ app.post('/create-order', requireAuth, async (req, res) => {
       }
     }
 
+    if (variant.flashPrice != null) price = Math.min(price, variant.flashPrice);
     price = price * qty;
 
     // Terapkan voucher (setelah diskon reseller)
@@ -3385,6 +3561,7 @@ async function finalizeConfirmedPayment(refId) {
         buyerForCoin.coins = (buyerForCoin.coins || 0) + gotKeys;
         await writeDB('users.json', usersForCoin);
       }
+      await awardReferral(freshTx.userId, Number(freshTx.totalPayment || freshTx.price || 0));
     } else {
       // Stok habis — jangan kirim key palsu. Tandai transaksi & beri tahu admin via WA.
       outOfStock = true;
@@ -4507,6 +4684,11 @@ function parseKeyTag(k) {
 // Tentukan varian yang dibeli dari label/durasi yang dikirim browser.
 // Mengembalikan { price, selectedDays, selectedUnit } atau null kalau tidak valid.
 function resolveVariant(product, duration) {
+  const v = resolveVariantRaw(product, duration);
+  if (v) { const fp = flashPriceOf(product, v.price); if (fp != null) v.flashPrice = fp; }
+  return v;
+}
+function resolveVariantRaw(product, duration) {
   if (product.pricingOptions?.length) {
     const itemMatch = findItemByDuration(product, duration);
     if (itemMatch) {
@@ -5630,6 +5812,7 @@ app.post('/admin/transaction/confirm/:id', requireAdmin, async (req, res) => {
       if (key) {
         product.sold = (product.sold || 0) + keysRes.keys.length;
         await writeDB('products.json', products);
+        await awardReferral(transaction.userId, Number(transaction.totalPayment || transaction.price || 0));
         if (keysRes.keys.length < wantQty) {
           transaction.partial = true;
           transaction.deliveredQty = keysRes.keys.length;
@@ -6034,12 +6217,25 @@ app.get('/admin/product/:id', requireAdmin, async (req, res) => {
 // Admin Update Product (image, status, keys)
 app.post('/admin/product/:id', requireAdmin, async (req, res) => {
   try {
-    const { items, bannerUrl, status, keys, keysMode, platforms, operationalStatus, stockMode, resellerItemId, name } = req.body;
+    const { items, bannerUrl, status, keys, keysMode, platforms, operationalStatus, stockMode, resellerItemId, name, flash } = req.body;
     const products = await readFresh('products.json');
     const productIndex = products.findIndex(p => p.id === req.params.id);
 
     if (productIndex === -1) return res.json({ success: false, message: 'Produk tidak ditemukan' });
     const p = products[productIndex];
+
+    // Flash sale: { enabled, percent 1-90, endsAt ISO }. Dikirim null/enabled=false -> dimatikan.
+    if (flash !== undefined) {
+      const pct = parseInt(flash && flash.percent, 10);
+      const end = Date.parse(flash && flash.endsAt);
+      if (flash && flash.enabled && pct >= 1 && pct <= 90 && Number.isFinite(end)) {
+        p.flash = { enabled: true, percent: pct, endsAt: new Date(end).toISOString() };
+      } else if (flash && flash.enabled) {
+        return res.json({ success: false, message: 'Flash sale: isi diskon 1-90% dan waktu berakhir yang valid.' });
+      } else {
+        delete p.flash;
+      }
+    }
 
     // Rename produk (tanpa hapus + tambah ulang). Label paket (p.items[].l)
     // dibangun dari nama, jadi ikut dibangun ulang dari pricingOptions.

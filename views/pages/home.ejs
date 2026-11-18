@@ -98,6 +98,7 @@ const siteName = settings?.siteName || 'RYAN NEW ERA';
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><iconify-icon icon="mdi:gamepad-variant" style="font-size:28px;color:#b7c4e0;"></iconify-icon></div>
         <% } %>
         <span class="edot-tag <%= bad ? 'off' : '' %>"><iconify-icon icon="<%= bad ? 'mdi:close-circle' : 'mdi:flash' %>" style="font-size:10px;"></iconify-icon><%= tagTxt %></span>
+        <% if (product.flash && !bad) { %><span style="position:absolute;top:6px;right:6px;background:#db2777;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;">-<%= product.flash.percent %>%</span><% } %>
       </div>
       <div class="edot-pname"><%= product.name %></div>
       <div class="edot-psub"><iconify-icon icon="mdi:cart-outline" style="font-size:11px;"></iconify-icon><%= soldLabel %> Terjual</div>

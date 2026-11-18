@@ -29,6 +29,31 @@ select.hm-input option{background:#0f172a;color:#e2e8f0;}
     </a>
   </div>
 
+  <!-- ── FLASH SALE ── -->
+  <div class="section-card">
+    <h2 class="text-sm font-black text-white mb-3 flex items-center gap-2">
+      <iconify-icon icon="mdi:flash" class="text-pink-400 text-lg"></iconify-icon> Flash Sale
+    </h2>
+    <label class="flex items-center gap-2 text-[12px] text-zinc-300 mb-3"><input type="checkbox" id="flashEnabled"> Aktifkan flash sale untuk produk ini</label>
+    <div class="grid grid-cols-2 gap-2">
+      <div>
+        <div class="text-[10px] text-zinc-500 mb-1">Diskon (%)</div>
+        <input id="flashPercent" type="number" min="1" max="90" value="20" class="w-full px-3 py-2.5 rounded-xl text-sm text-white" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);outline:none">
+      </div>
+      <div>
+        <div class="text-[10px] text-zinc-500 mb-1">Berakhir pada</div>
+        <input id="flashEnds" type="datetime-local" class="w-full px-3 py-2.5 rounded-xl text-sm text-white" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);outline:none">
+      </div>
+    </div>
+    <div class="flex gap-1.5 mt-2">
+      <button type="button" onclick="flashPlus(1)" class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 text-zinc-400">+1 jam</button>
+      <button type="button" onclick="flashPlus(6)" class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 text-zinc-400">+6 jam</button>
+      <button type="button" onclick="flashPlus(24)" class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 text-zinc-400">+1 hari</button>
+      <button type="button" onclick="flashPlus(72)" class="flex-1 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 text-zinc-400">+3 hari</button>
+    </div>
+    <p class="text-[10px] text-zinc-500 mt-2">Harga semua paket turun sebesar persen ini sampai waktu berakhir, lalu kembali normal otomatis. Pembeli reseller tetap dapat harga terendah di antara harga reseller dan harga flash. Klik Simpan di bawah untuk menerapkan.</p>
+  </div>
+
   <!-- ── NAMA PRODUK ── -->
   <div class="section-card">
     <h2 class="text-sm font-black text-white mb-3 flex items-center gap-2">
@@ -209,6 +234,12 @@ async function loadProduct() {
   currentProduct = data.data;
   document.getElementById('productNameLabel').textContent = currentProduct.name;
   document.getElementById('nameInput').value = currentProduct.name || '';
+  (function () {
+    const f = currentProduct.flash;
+    document.getElementById('flashEnabled').checked = !!(f && f.enabled);
+    if (f && f.percent) document.getElementById('flashPercent').value = f.percent;
+    if (f && f.endsAt) document.getElementById('flashEnds').value = toLocalInput(new Date(f.endsAt));
+  })();
 
   // Gambar
   const img = currentProduct.image || currentProduct.bannerUrl || '';
@@ -632,6 +663,21 @@ function renderDripOptions(selected) {
   }).join('');
 }
 
+function toLocalInput(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function flashPlus(h) {
+  document.getElementById('flashEnds').value = toLocalInput(new Date(Date.now() + h * 3600000));
+  document.getElementById('flashEnabled').checked = true;
+}
+function readFlash() {
+  const on = document.getElementById('flashEnabled').checked;
+  const v = document.getElementById('flashEnds').value;
+  const d = v ? new Date(v) : null;
+  return { enabled: on, percent: parseInt(document.getElementById('flashPercent').value, 10) || 0, endsAt: d && !isNaN(d) ? d.toISOString() : null };
+}
+
 function onGhostSellerProductChange(i, productId) {
   pricingOptions[i].ghostSellerProductId = productId || null;
   pricingOptions[i].ghostSellerDurationId = null;
@@ -821,6 +867,7 @@ async function saveProduct() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: document.getElementById('nameInput').value.trim(),
+      flash: readFlash(),
       bannerUrl: imgUrl,
       status: selectedStatus,
       operationalStatus: selectedOpStatus,

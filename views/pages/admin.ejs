@@ -1540,6 +1540,28 @@ textarea.hm-input{resize:vertical;min-height:80px;}
         </form>
     </div>
 
+    <!-- Referral / Ajak Teman -->
+    <div class="neon-card p-5 mb-3" style="border-color:rgba(219,39,119,.25)">
+        <div class="text-xs font-bold mb-3 flex items-center gap-2" style="color:#f472b6">
+            <iconify-icon icon="mdi:account-multiple-plus"></iconify-icon> Referral (Ajak Teman)
+        </div>
+        <p class="text-[11px] text-zinc-500 mb-3 leading-relaxed">
+            Tiap user punya link ajakan di menu Ajak Teman. Kalau teman yang daftar lewat link itu beli pertama kali, pengajak otomatis dapat bonus saldo (sekali per teman).
+        </p>
+        <form id="referralForm" class="space-y-3">
+            <label class="flex items-center gap-2 text-[11px] text-zinc-400"><input type="checkbox" name="enabled" <%= settings.referral?.enabled ? 'checked' : '' %>> Aktifkan program referral</label>
+            <div>
+                <div class="setting-row-label">Bonus untuk pengajak (Rp)</div>
+                <input type="number" name="bonus" min="0" step="500" value="<%= settings.referral?.bonus ?? 2000 %>" class="hm-input text-xs">
+            </div>
+            <div>
+                <div class="setting-row-label">Minimal belanja teman agar bonus cair (Rp)</div>
+                <input type="number" name="minPurchase" min="0" step="1000" value="<%= settings.referral?.minPurchase ?? 0 %>" class="hm-input text-xs">
+            </div>
+            <button type="submit" class="btn-primary w-full justify-center py-2.5 text-sm"><iconify-icon icon="mdi:content-save"></iconify-icon> Simpan Referral</button>
+        </form>
+    </div>
+
     <!-- Reseller VIP -->
     <div class="neon-card p-5 mb-3" style="border-color:rgba(234,179,8,.2)">
         <div class="text-xs font-bold mb-4 flex items-center gap-2" style="color:#fbbf24">
@@ -3131,6 +3153,13 @@ document.getElementById('dripApiForm').addEventListener('submit', async function
         el.appendChild(row);
     });
     this.querySelector('[name=apiKey]').value = '';
+});
+
+document.getElementById('referralForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const fd = new FormData(this);
+    const d = await api('/admin/settings/referral', { enabled: fd.get('enabled') === 'on', bonus: fd.get('bonus'), minPurchase: fd.get('minPurchase') });
+    if (typeof toast === 'function') toast(d.success ? 'Pengaturan referral disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
 });
 
 document.getElementById('credForm').addEventListener('submit', async function(e) {
