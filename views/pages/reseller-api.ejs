@@ -1,0 +1,70 @@
+<%
+const pageTitle = 'API Reseller';
+%>
+<%- include('../partials/edot-header') %>
+<div style="padding:16px 16px 40px;">
+<div style="max-width:520px;margin:0 auto;">
+
+  <div style="text-align:center;margin:8px 0 18px;">
+    <div style="width:56px;height:56px;border-radius:16px;background:#f0fdf4;border:1px solid #bbf7d0;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
+      <iconify-icon icon="mdi:api" style="font-size:28px;color:#16a34a;"></iconify-icon>
+    </div>
+    <h1 style="font-size:20px;font-weight:900;color:var(--text-1);">API Reseller</h1>
+    <p style="font-size:12px;color:var(--text-3);margin-top:4px;">Sambungkan web atau bot kamu supaya jual produk kami otomatis, saldo terpotong dari akun ini.</p>
+  </div>
+
+  <% if (!me.is_reseller) { %>
+  <div class="neon-card" style="padding:22px;text-align:center;">
+    <p style="font-size:13px;color:var(--text-2);">Fitur ini khusus reseller aktif.</p>
+    <a href="/reseller" class="btn-primary" style="display:inline-block;margin-top:12px;padding:10px 18px;border-radius:10px;font-size:13px;text-decoration:none;">Jadi Reseller</a>
+  </div>
+  <% } else { %>
+  <% if (!enabled) { %><div class="neon-card" style="padding:12px 14px;margin-bottom:12px;font-size:12px;color:#d97706;font-weight:700;">Reseller API sedang dinonaktifkan admin.</div><% } %>
+
+  <div class="neon-card" style="padding:18px;">
+    <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px;">Base URL</div>
+    <input type="text" readonly class="hm-input" value="<%= base %>" style="font-size:12px;font-family:monospace;margin-bottom:14px;" onclick="this.select()">
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px;">API Key</div>
+    <div id="akCurrent" style="font-family:monospace;font-size:13px;color:var(--text-1);padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.04);word-break:break-all;">
+      <%= me.apiKeyPrefix ? me.apiKeyPrefix : 'Belum ada key' %>
+    </div>
+    <div id="akNew" style="display:none;margin-top:10px;padding:12px;border-radius:10px;background:rgba(22,163,74,.1);border:1px solid rgba(22,163,74,.35);">
+      <div style="font-size:11px;font-weight:800;color:#16a34a;margin-bottom:6px;">Key baru. Simpan sekarang, tidak akan ditampilkan lagi.</div>
+      <code id="akValue" style="display:block;font-size:12px;word-break:break-all;color:var(--text-1);"></code>
+      <button type="button" onclick="akCopy()" id="akCopyBtn" class="btn-primary" style="margin-top:8px;padding:8px 14px;border-radius:8px;font-size:12px;">Salin key</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button type="button" class="btn-primary" style="flex:1;padding:12px;border-radius:10px;font-size:13px;" onclick="akRotate()"><%= me.apiKeyHash ? 'Ganti Key (key lama mati)' : 'Buat API Key' %></button>
+      <% if (me.apiKeyHash) { %><button type="button" onclick="akRevoke()" style="padding:12px 14px;border-radius:10px;font-size:13px;font-weight:800;border:1px solid #fca5a5;color:#dc2626;background:transparent;">Cabut</button><% } %>
+    </div>
+    <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Jangan taruh key di kode front-end atau repo publik. Siapa pun yang punya key bisa membeli dan memotong saldo kamu.</p>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-top:14px;">
+    <div class="neon-card" style="flex:1;padding:14px;text-align:center;"><div style="font-size:17px;font-weight:900;color:var(--text-1);">Rp <%= Number(me.balance || 0).toLocaleString('id-ID') %></div><div style="font-size:11px;color:var(--text-3);">Saldo</div></div>
+    <a href="/docs/api" class="neon-card" style="flex:1;padding:14px;text-align:center;text-decoration:none;"><div style="font-size:17px;font-weight:900;color:#2563eb;">Dokumentasi</div><div style="font-size:11px;color:var(--text-3);">Endpoint &amp; contoh kode</div></a>
+  </div>
+  <% } %>
+</div></div>
+<script>
+function akRotate(){
+  if (!confirm('Buat key baru? Key lama langsung tidak berlaku.')) return;
+  fetch('/reseller/api/rotate', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }).then(function(r){ return r.json(); }).then(function(d){
+    if (!d.success) { alert(d.message || 'Gagal'); return; }
+    document.getElementById('akValue').textContent = d.key;
+    document.getElementById('akNew').style.display = 'block';
+    document.getElementById('akCurrent').textContent = d.prefix;
+  }).catch(function(){ alert('Koneksi bermasalah'); });
+}
+function akRevoke(){
+  if (!confirm('Cabut API key? Semua integrasi yang memakainya berhenti.')) return;
+  fetch('/reseller/api/revoke', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }).then(function(r){ return r.json(); }).then(function(d){ if (d.success) location.reload(); else alert(d.message || 'Gagal'); });
+}
+function akCopy(){
+  var t = document.getElementById('akValue').textContent;
+  var ok = function(){ var b = document.getElementById('akCopyBtn'); b.textContent = 'Tersalin'; setTimeout(function(){ b.textContent = 'Salin key'; }, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok);
+  else { var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); } catch(e){} a.remove(); ok(); }
+}
+</script>

@@ -514,6 +514,11 @@
                 <a href="/key-saya" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
                     <iconify-icon icon="mdi:key-chain-variant" style="color:var(--blue);font-size:18px;"></iconify-icon> Key Saya
                 </a>
+                <% if (user.is_reseller) { %>
+                <a href="/reseller/api" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
+                    <iconify-icon icon="mdi:api" style="color:var(--green);font-size:18px;"></iconify-icon> API Reseller
+                </a>
+                <% } %>
                 <a href="/referral" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
                     <iconify-icon icon="mdi:account-multiple-plus" style="color:#db2777;font-size:18px;"></iconify-icon> Ajak Teman
                 </a>

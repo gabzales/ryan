@@ -1562,6 +1562,18 @@ textarea.hm-input{resize:vertical;min-height:80px;}
         </form>
     </div>
 
+    <!-- Reseller API -->
+    <div class="neon-card p-5 mb-3" style="border-color:rgba(22,163,74,.25)">
+        <div class="text-xs font-bold mb-3 flex items-center gap-2" style="color:#4ade80">
+            <iconify-icon icon="mdi:api"></iconify-icon> Reseller API
+        </div>
+        <p class="text-[11px] text-zinc-500 mb-3 leading-relaxed">
+            Reseller aktif bisa membuat API key sendiri (menu API Reseller) dan menjual produk ini dari web lain. Dokumentasi publik ada di <span class="font-mono">/docs/api</span>. Matikan di sini kalau perlu menutup semua akses API sekaligus.
+        </p>
+        <label class="flex items-center gap-2 text-[11px] text-zinc-400 mb-3"><input type="checkbox" id="resellerApiEnabled" <%= settings.resellerApi?.enabled === false ? '' : 'checked' %>> Reseller API aktif</label>
+        <button type="button" class="btn-primary w-full justify-center py-2.5 text-sm" onclick="saveResellerApi()"><iconify-icon icon="mdi:content-save"></iconify-icon> Simpan</button>
+    </div>
+
     <!-- Reseller VIP -->
     <div class="neon-card p-5 mb-3" style="border-color:rgba(234,179,8,.2)">
         <div class="text-xs font-bold mb-4 flex items-center gap-2" style="color:#fbbf24">
@@ -3154,6 +3166,11 @@ document.getElementById('dripApiForm').addEventListener('submit', async function
     });
     this.querySelector('[name=apiKey]').value = '';
 });
+
+async function saveResellerApi() {
+    const d = await api('/admin/settings/reseller-api', { enabled: document.getElementById('resellerApiEnabled').checked });
+    if (typeof toast === 'function') toast(d.success ? 'Pengaturan Reseller API disimpan' : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+}
 
 document.getElementById('referralForm').addEventListener('submit', async function(e) {
     e.preventDefault();

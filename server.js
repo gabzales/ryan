@@ -2216,6 +2216,241 @@ app.get('/status', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// RESELLER API v1 — web lain bisa jual produk toko ini secara otomatis.
+// Auth: Authorization: Bearer rk_live_xxx (key per reseller, dikelola di /reseller/api).
+// Envelope: sukses { data } · gagal { error: { code, message } }. Uang: Rupiah (integer).
+// Order: wajib header Idempotency-Key; potong saldo reseller; harga = harga reseller.
+// ═══════════════════════════════════════════════════════════════
+const API_UNIT_CHAR = { hari: 'd', jam: 'h', menit: 'm' };
+const API_CHAR_UNIT = { d: 'hari', h: 'jam', m: 'menit' };
+const API_MAX_QTY = 20;
+const apiRate = new Map(); // keyHash -> { n, reset }
+const apiSku = (p, o) => `${p.id}.${o.days}${API_UNIT_CHAR[unitOf(o)] || 'd'}`;
+const hashApiKey = (k) => crypto.createHash('sha256').update(String(k)).digest('hex');
+const apiErr = (res, status, code, message) => res.status(status).json({ error: { code, message } });
+
+function parseApiSku(sku) {
+  const m = String(sku || '').match(/^(.+)\.(\d{1,6})([dhm])$/);
+  return m ? { productId: m[1], days: parseInt(m[2], 10), unit: API_CHAR_UNIT[m[3]] } : null;
+}
+// Harga unit untuk reseller (aturan sama dengan /wallet/buy: harga reseller manual / diskon global, lalu flash sale kalau lebih murah).
+function apiUnitPrice(product, opt, settings) {
+  let price = opt.price;
+  if (opt.reseller_price != null && opt.reseller_price >= 0) price = opt.reseller_price;
+  else price = Math.round(price * (1 - (settings.resellerDiscount || 20) / 100));
+  const fp = flashPriceOf(product, opt.price);
+  return fp != null ? Math.min(price, fp) : price;
+}
+
+async function resellerApiAuth(req, res, next) {
+  try {
+    const settings = await readSmart('settings.json');
+    if (settings.resellerApi && settings.resellerApi.enabled === false) return apiErr(res, 403, 'FORBIDDEN', 'Reseller API sedang dinonaktifkan.');
+    const m = String(req.headers.authorization || '').match(/^Bearer\s+(rk_live_[a-f0-9]{48})$/);
+    if (!m) return apiErr(res, 401, 'UNAUTHORIZED', 'API key tidak ada atau tidak valid.');
+    const h = hashApiKey(m[1]);
+    const now = Date.now();
+    let r = apiRate.get(h);
+    if (!r || r.reset < now) { r = { n: 0, reset: now + 60000 }; apiRate.set(h, r); }
+    if (++r.n > 120) return apiErr(res, 429, 'BUSY', 'Terlalu banyak request, coba lagi sebentar.');
+    if (apiRate.size > 2000) for (const [k, v] of apiRate) if (v.reset < now) apiRate.delete(k);
+    const users = await readSmart('users.json');
+    const u = users.find(x => x.apiKeyHash === h);
+    if (!u) return apiErr(res, 401, 'UNAUTHORIZED', 'API key tidak ada atau tidak valid.');
+    if (!u.is_reseller) return apiErr(res, 403, 'FORBIDDEN', 'Akun ini bukan reseller aktif.');
+    req.apiUserId = u.id;
+    req.apiKeyHash = h;
+    next();
+  } catch (e) { console.error('[api] auth:', e.message); apiErr(res, 500, 'INTERNAL', 'Terjadi gangguan sistem.'); }
+}
+
+app.get('/api/v1/me', resellerApiAuth, async (req, res) => {
+  const u = (await readSmart('users.json')).find(x => x.id === req.apiUserId);
+  res.json({ data: { username: u.username, role: 'RESELLER', currency: 'IDR', keyPrefix: u.apiKeyPrefix || null, rateLimitRpm: 120, maxQuantity: API_MAX_QTY } });
+});
+
+app.get('/api/v1/balance', resellerApiAuth, async (req, res) => {
+  const u = (await readFresh('users.json')).find(x => x.id === req.apiUserId);
+  res.json({ data: { balance: u.balance || 0, currency: 'IDR' } });
+});
+
+async function apiCatalog(settings) {
+  const products = await readSmart('products.json');
+  const items = [];
+  for (const p of products.filter(x => x.status === 'active' && Array.isArray(x.pricingOptions) && x.pricingOptions.length)) {
+    const out = await providerAvailability(p, settings);
+    const offline = p.operationalStatus === 'offline';
+    p.pricingOptions.forEach((o, i) => {
+      const unit = unitOf(o);
+      const auto = isAutoStockSource(o.stockSource);
+      const stock = auto ? null : countManualKeys(p, o.days, unit);
+      const inStock = !offline && (auto ? !out[i] : stock > 0);
+      items.push({
+        apiCode: apiSku(p, o), name: `${p.name} — ${o.days} ${({ hari: 'Hari', jam: 'Jam', menit: 'Menit' })[unit]}`,
+        product: p.name, productApiCode: p.id, category: p.category || '',
+        label: `${o.days} ${({ hari: 'Hari', jam: 'Jam', menit: 'Menit' })[unit]}`, days: o.days, unit,
+        price: apiUnitPrice(p, o, settings), currency: 'IDR',
+        stock, inStock, is_maintenance: offline
+      });
+    });
+  }
+  return items;
+}
+app.get('/api/v1/products', resellerApiAuth, async (req, res) => {
+  try {
+    const settings = await readSmart('settings.json');
+    res.json({ data: { currency: 'IDR', priceTier: 'reseller', items: await apiCatalog(settings) } });
+  } catch (e) { console.error('[api] products:', e.message); apiErr(res, 500, 'INTERNAL', 'Terjadi gangguan sistem.'); }
+});
+app.get('/api/v1/stock', resellerApiAuth, async (req, res) => {
+  try {
+    const settings = await readSmart('settings.json');
+    const it = (await apiCatalog(settings)).find(x => x.apiCode === String(req.query.sku || ''));
+    if (!it) return apiErr(res, 404, 'UNKNOWN_SKU', 'SKU tidak dikenal. Panggil GET /api/v1/products.');
+    res.json({ data: { apiCode: it.apiCode, stock: it.stock, inStock: it.inStock, is_maintenance: it.is_maintenance } });
+  } catch (e) { apiErr(res, 500, 'INTERNAL', 'Terjadi gangguan sistem.'); }
+});
+
+const apiOrderView = (t) => ({
+  id: t.id, code: t.code, status: t.partial ? 'PARTIAL' : 'FULFILLED', sku: t.apiSku, quantity: t.qty || 1,
+  price: t.price, currency: 'IDR', keys: String(t.key || '').split('\n').filter(Boolean), createdAt: t.createdAt
+});
+
+app.post('/api/v1/orders', resellerApiAuth, async (req, res) => {
+  const uid = req.apiUserId;
+  const idem = String(req.headers['idempotency-key'] || '').trim();
+  if (!idem || idem.length > 100) return apiErr(res, 400, 'IDEMPOTENCY_REQUIRED', 'Header Idempotency-Key wajib diisi (maks 100 karakter).');
+  const sku = parseApiSku(req.body && req.body.sku);
+  if (!sku) return apiErr(res, 400, 'DURATION_REQUIRED', 'Isi sku dengan items[].apiCode dari GET /api/v1/products.');
+  let qty = req.body.quantity === undefined ? 1 : Number(req.body.quantity);
+  if (!Number.isInteger(qty) || qty < 1 || qty > API_MAX_QTY) return apiErr(res, 400, 'INVALID_QTY', `quantity harus 1-${API_MAX_QTY}.`);
+
+  // Satu order per reseller sekaligus (lock lokal + lock atomik Supabase), mencegah double-spend.
+  const lockId = 'api_' + uid;
+  if (walletLocks.has(lockId)) return apiErr(res, 409, 'PURCHASE_PENDING', 'Order sebelumnya masih diproses. Ulangi dengan Idempotency-Key yang sama.');
+  walletLocks.add(lockId);
+  const gotLock = await db.acquireLock(lockId);
+  if (!gotLock) { walletLocks.delete(lockId); return apiErr(res, 409, 'PURCHASE_PENDING', 'Order sebelumnya masih diproses. Ulangi dengan Idempotency-Key yang sama.'); }
+  try {
+    const idemKey = `${uid}:${idem}`;
+    const txAll = await readFresh('transactions.json');
+    const dup = txAll.find(t => t.apiIdem === idemKey);
+    if (dup) {
+      if (dup.apiSku !== req.body.sku) return apiErr(res, 422, 'IDEMPOTENCY_MISMATCH', 'Idempotency-Key ini sudah dipakai untuk SKU lain.');
+      return res.json({ data: apiOrderView(dup) });
+    }
+
+    const settings = await readFresh('settings.json');
+    const users = await readFresh('users.json');
+    const user = users.find(u => u.id === uid);
+    if (!user || !user.is_reseller) return apiErr(res, 403, 'FORBIDDEN', 'Akun ini bukan reseller aktif.');
+    const products = await readFresh('products.json');
+    const product = products.find(p => p.id === sku.productId && p.status === 'active');
+    const opt = product && findPricingOpt(product, sku.days, sku.unit);
+    if (!opt) return apiErr(res, 404, 'UNKNOWN_SKU', 'SKU tidak dikenal. Panggil GET /api/v1/products.');
+    if (product.operationalStatus === 'offline') return apiErr(res, 400, 'PRODUCT_MAINTENANCE', 'Produk sedang maintenance.');
+
+    const src = resolveStockSourceForDays(product, sku.days, sku.unit);
+    if (!isAutoStockSource(src) && countManualKeys(product, sku.days, sku.unit) < qty) return apiErr(res, 409, 'BUSY', 'Stok tidak cukup.');
+    if (await isVariantProviderOut(product, sku.days, sku.unit, settings)) return apiErr(res, 409, 'BUSY', 'Stok sedang habis.');
+
+    const unit = apiUnitPrice(product, opt, settings);
+    const total = unit * qty;
+    const balance = user.balance || 0;
+    if (balance < total) return apiErr(res, 402, 'INSUFFICIENT_BALANCE', `Saldo tidak cukup. Butuh Rp ${total.toLocaleString('id-ID')}, saldo Rp ${balance.toLocaleString('id-ID')}.`);
+
+    const target = typeof req.body.target === 'string' ? req.body.target.slice(0, 80) : undefined;
+    const keysRes = await resolveProductKeys(product, sku.days, settings, {
+      selectedUnit: sku.unit, customerReference: target || user.username, target, idempotencyKey: `api-${uid}-${idem}`
+    }, qty);
+    if (!keysRes.keys.length) return apiErr(res, 409, 'BUSY', keysRes.error || 'Stok sedang habis.');
+    const got = keysRes.keys.length;
+    const charge = got < qty ? Math.round(total * got / qty) : total;
+
+    user.balance = balance - charge;
+    product.sold = (product.sold || 0) + got;
+    await writeDB('users.json', users);
+    await writeDB('products.json', products);
+    const tx = {
+      id: uuidv4(), orderId: `API-${Date.now()}`, code: generateOrderCode(),
+      userId: uid, productId: product.id, productName: product.name,
+      duration: buildItemLabel(product.name, sku.days, sku.unit), selectedDays: sku.days, selectedUnit: sku.unit, qty: got,
+      price: charge, totalPayment: charge, paymentMethod: 'api', source: 'api',
+      customerName: target || user.username, wa: user.wa,
+      status: 'done', key: keysRes.keys.join('\n'), paidAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(), time: formatDate(), apiIdem: idemKey, apiSku: req.body.sku,
+      partial: got < qty ? true : undefined, deliveredQty: got < qty ? got : undefined
+    };
+    txAll.push(tx);
+    await writeDB('transactions.json', txAll);
+    res.json({ data: { ...apiOrderView(tx), unitPrice: unit, balance: user.balance } });
+  } catch (e) {
+    console.error('[api] order:', e.message);
+    apiErr(res, 500, 'INTERNAL', 'Terjadi gangguan sistem.');
+  } finally {
+    walletLocks.delete(lockId);
+    await db.releaseLock(lockId);
+  }
+});
+
+app.get('/api/v1/orders', resellerApiAuth, async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1), limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const mine = (await readFresh('transactions.json')).filter(t => t.userId === req.apiUserId && t.source === 'api').reverse();
+  res.json({ data: { page, limit, total: mine.length, hasMore: page * limit < mine.length,
+    items: mine.slice((page - 1) * limit, page * limit).map(t => { const v = apiOrderView(t); return { id: v.id, code: v.code, status: v.status, sku: v.sku, quantity: v.quantity, price: v.price, keysCount: v.keys.length, createdAt: v.createdAt }; }) } });
+});
+app.get('/api/v1/orders/:id', resellerApiAuth, async (req, res) => {
+  const t = (await readFresh('transactions.json')).find(x => x.userId === req.apiUserId && x.source === 'api' && (x.id === req.params.id || x.code === req.params.id));
+  if (!t) return apiErr(res, 404, 'NOT_FOUND', 'Order tidak ditemukan.');
+  res.json({ data: apiOrderView(t) });
+});
+app.use('/api/v1', (req, res) => apiErr(res, 404, 'NOT_FOUND', 'Endpoint tidak ditemukan. Lihat /docs/api.'));
+
+// ── Kelola API key (dashboard reseller) + dokumentasi publik ──
+app.get('/reseller/api', requireAuth, async (req, res) => {
+  if (req.session.isAdmin) return res.redirect('/admin');
+  const u = (await readFresh('users.json')).find(x => x.id === req.session.userId);
+  if (!u) return res.redirect('/login');
+  const settings = res.locals.settings || readDB('settings.json');
+  res.render('pages/reseller-api', { settings, user: res.locals.user || u, me: u, enabled: !(settings.resellerApi && settings.resellerApi.enabled === false), base: (process.env.SITE_URL || ('https://' + req.get('host'))).replace(/\/$/, '') + '/api/v1' });
+});
+app.post('/reseller/api/rotate', requireAuth, async (req, res) => {
+  try {
+    if (req.session.isAdmin) return res.json({ success: false, message: 'Khusus reseller.' });
+    const users = await readFresh('users.json');
+    const u = users.find(x => x.id === req.session.userId);
+    if (!u || !u.is_reseller) return res.json({ success: false, message: 'Akun kamu belum reseller aktif.' });
+    const key = 'rk_live_' + crypto.randomBytes(24).toString('hex');
+    u.apiKeyHash = hashApiKey(key);
+    u.apiKeyPrefix = key.slice(0, 12) + '…' + key.slice(-4);
+    u.apiKeyAt = new Date().toISOString();
+    await writeDB('users.json', users);
+    res.json({ success: true, key, prefix: u.apiKeyPrefix });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+app.post('/reseller/api/revoke', requireAuth, async (req, res) => {
+  try {
+    const users = await readFresh('users.json');
+    const u = users.find(x => x.id === req.session.userId);
+    if (!u) return res.json({ success: false, message: 'User tidak ditemukan' });
+    delete u.apiKeyHash; delete u.apiKeyPrefix; delete u.apiKeyAt;
+    await writeDB('users.json', users);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+app.post('/admin/settings/reseller-api', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    settings.resellerApi = { enabled: req.body.enabled === true || req.body.enabled === 'true' || req.body.enabled === 'on' };
+    await writeDB('settings.json', settings);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+app.get('/docs/api', (req, res) => {
+  res.render('pages/docs-api', { settings: res.locals.settings || readDB('settings.json'), user: res.locals.user || getSessionUser(req), base: (process.env.SITE_URL || ('https://' + req.get('host'))).replace(/\/$/, '') + '/api/v1', maxQty: API_MAX_QTY });
+});
+
 app.get('/reset-key', requireAuth, async (req, res) => {
   if (req.session.isAdmin) return res.redirect('/admin');
   const [transactions, rows] = await Promise.all([readFresh('transactions.json'), readFresh('resetkeys.json')]);

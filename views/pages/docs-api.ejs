@@ -1,0 +1,91 @@
+<%
+const pageTitle = 'Dokumentasi API';
+const sample = JSON.stringify({ data: { currency: 'IDR', priceTier: 'reseller', items: [{ apiCode: '3f2c...e1.30d', name: 'Produk X — 30 Hari', product: 'Produk X', productApiCode: '3f2c...e1', category: 'game', label: '30 Hari', days: 30, unit: 'hari', price: 40000, currency: 'IDR', stock: 12, inStock: true, is_maintenance: false }] } }, null, 2);
+const orderOk = JSON.stringify({ data: { id: 'b1c2...', code: 'VR-ABCD-EFGH', status: 'FULFILLED', sku: '3f2c...e1.30d', quantity: 1, price: 40000, currency: 'IDR', keys: ['XXXX-YYYY-ZZZZ'], createdAt: '2026-11-18T10:00:00.000Z', unitPrice: 40000, balance: 160000 } }, null, 2);
+const box = 'background:#0f172a;color:#e2e8f0;border-radius:12px;padding:12px 14px;font-size:11.5px;line-height:1.55;overflow-x:auto;white-space:pre;font-family:ui-monospace,Menlo,monospace;margin:8px 0 14px;';
+const h2 = 'font-size:14px;font-weight:900;color:var(--text-1);margin:22px 0 4px;';
+const p = 'font-size:12px;color:var(--text-2);line-height:1.6;margin:4px 0;';
+const errs = [
+ ['400','IDEMPOTENCY_REQUIRED','Header Idempotency-Key tidak ada'],
+ ['400','DURATION_REQUIRED','sku kosong / formatnya salah'],
+ ['400','INVALID_QTY','quantity di luar 1-' + maxQty],
+ ['400','PRODUCT_MAINTENANCE','Produk sedang maintenance'],
+ ['401','UNAUTHORIZED','API key tidak valid'],
+ ['402','INSUFFICIENT_BALANCE','Saldo reseller tidak cukup'],
+ ['403','FORBIDDEN','Akun bukan reseller aktif / API dinonaktifkan'],
+ ['404','UNKNOWN_SKU','SKU tidak dikenal'],
+ ['404','NOT_FOUND','Order / endpoint tidak ada'],
+ ['409','BUSY','Stok habis'],
+ ['409','PURCHASE_PENDING','Order sebelumnya masih diproses, ulangi dengan Idempotency-Key sama'],
+ ['422','IDEMPOTENCY_MISMATCH','Idempotency-Key dipakai untuk SKU lain'],
+ ['429','BUSY','Rate limit 120 request per menit per key']
+];
+%>
+<%- include('../partials/edot-header') %>
+<div style="padding:16px 16px 50px;">
+<div style="max-width:640px;margin:0 auto;">
+  <h1 style="font-size:20px;font-weight:900;color:var(--text-1);margin-top:8px;">Dokumentasi Reseller API v1</h1>
+  <p style="<%= p %>">Jual produk <%= settings.siteName || 'kami' %> dari web atau bot kamu. Alurnya 3 panggilan: <b>products</b>, <b>balance</b>, lalu <b>orders</b> untuk mendapat key.</p>
+
+  <h2 style="<%= h2 %>">Dasar</h2>
+  <p style="<%= p %>">Base URL: <code><%= base %></code></p>
+  <p style="<%= p %>">Auth: header <code>Authorization: Bearer rk_live_xxx</code>. Buat key di <a href="/reseller/api" style="color:#2563eb;">API Reseller</a> (khusus reseller aktif).</p>
+  <p style="<%= p %>">Uang: Rupiah (integer). Harga di API = harga reseller kamu (sudah termasuk flash sale kalau lebih murah). Respons sukses <code>{ "data": ... }</code>, gagal <code>{ "error": { "code", "message" } }</code>. Rate limit 120 request/menit per key.</p>
+
+  <h2 style="<%= h2 %>">GET /products</h2>
+  <p style="<%= p %>">Katalog datar, 1 item = 1 varian. Beli memakai <code>apiCode</code> sebagai <code>sku</code>. <code>stock</code> null berarti stok dari provider (cek <code>inStock</code>).</p>
+<pre style="<%= box %>"><%= sample %></pre>
+
+  <h2 style="<%= h2 %>">GET /balance</h2>
+<pre style="<%= box %>">{ "data": { "balance": 200000, "currency": "IDR" } }</pre>
+
+  <h2 style="<%= h2 %>">GET /stock?sku=...</h2>
+<pre style="<%= box %>">{ "data": { "apiCode": "3f2c...e1.30d", "stock": 12, "inStock": true, "is_maintenance": false } }</pre>
+
+  <h2 style="<%= h2 %>">POST /orders</h2>
+  <p style="<%= p %>">Beli key. Wajib header <code>Idempotency-Key</code> (UUID disarankan). Request yang diulang dengan key yang sama mengembalikan hasil yang sama dan tidak memotong saldo dua kali, jadi aman di-retry saat timeout. Body: <code>sku</code> (wajib), <code>quantity</code> (1-<%= maxQty %>, default 1), <code>target</code> (opsional, referensi pembeli akhir). Jangan kirim harga, server mengabaikannya.</p>
+  <p style="<%= p %>">Kalau stok kurang di tengah jalan, key yang berhasil didapat tetap dikirim dengan <code>status: "PARTIAL"</code> dan saldo hanya terpotong sebesar key yang terkirim.</p>
+<pre style="<%= box %>">curl -X POST <%= base %>/orders \
+  -H "Authorization: Bearer rk_live_xxx" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{"sku":"3f2c...e1.30d","quantity":1}'</pre>
+<pre style="<%= box %>"><%= orderOk %></pre>
+
+  <h2 style="<%= h2 %>">GET /orders &amp; GET /orders/{id}</h2>
+  <p style="<%= p %>">Riwayat order lewat API (<code>?page=1&amp;limit=20</code>, daftar hanya menampilkan jumlah key). Key lengkap ada di respons POST dan GET /orders/{id}.</p>
+
+  <h2 style="<%= h2 %>">Contoh Node.js</h2>
+<pre style="<%= box %>">const BASE = "<%= base %>", KEY = process.env.RESELLER_KEY;
+const api = (m, p, body, idem) => fetch(BASE + p, {
+  method: m,
+  headers: { Authorization: "Bearer " + KEY, "Content-Type": "application/json", ...(idem && { "Idempotency-Key": idem }) },
+  body: body && JSON.stringify(body)
+}).then(r => r.json());
+
+const { data: cat } = await api("GET", "/products");
+const sku = cat.items.find(i => i.inStock).apiCode;
+const order = await api("POST", "/orders", { sku, quantity: 1 }, crypto.randomUUID());
+console.log(order.data ? order.data.keys : order.error);</pre>
+
+  <h2 style="<%= h2 %>">Contoh Python</h2>
+<pre style="<%= box %>">import os, uuid, requests
+BASE, KEY = "<%= base %>", os.environ["RESELLER_KEY"]
+H = {"Authorization": "Bearer " + KEY}
+items = requests.get(BASE + "/products", headers=H).json()["data"]["items"]
+sku = next(i["apiCode"] for i in items if i["inStock"])
+r = requests.post(BASE + "/orders", headers={**H, "Idempotency-Key": str(uuid.uuid4())},
+                  json={"sku": sku, "quantity": 1}).json()
+print(r["data"]["keys"] if "data" in r else r["error"])</pre>
+
+  <h2 style="<%= h2 %>">Kode error</h2>
+  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+    <% errs.forEach(function(e, i){ %>
+    <div style="display:flex;gap:10px;padding:9px 12px;font-size:11.5px;<%= i ? 'border-top:1px solid var(--border);' : '' %>">
+      <span style="width:34px;font-weight:800;color:var(--text-3);"><%= e[0] %></span>
+      <span style="width:170px;font-family:monospace;font-weight:700;color:var(--text-1);word-break:break-all;"><%= e[1] %></span>
+      <span style="flex:1;color:var(--text-2);"><%= e[2] %></span>
+    </div>
+    <% }) %>
+  </div>
+</div></div>
