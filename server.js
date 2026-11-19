@@ -237,6 +237,34 @@ app.use((req, res, next) => {
   next();
 });
 
+// HEMAT Fast Origin Transfer: tiap halaman HTML ~100KB mentah (tw.css di-inline + script),
+// padahal hasil gzip cuma ~20KB. Kompres body respons (HTML/JSON) di origin, ASYNC (zlib
+// threadpool) supaya event loop tidak ke-block. Aset statis tidak lewat sini (di-cache edge).
+const zlib = require('zlib');
+const COMPRESSIBLE_CT = /^(text\/|application\/(json|javascript|xml)|image\/svg)/i;
+app.use((req, res, next) => {
+  if (req.method === 'HEAD' || !/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) return next();
+  const origSend = res.send.bind(res);
+  res.send = function (body) {
+    try {
+      if (res.headersSent || res.getHeader('Content-Encoding') || res.statusCode === 204 || res.statusCode === 304) return origSend(body);
+      const buf = typeof body === 'string' ? Buffer.from(body) : (Buffer.isBuffer(body) ? body : null);
+      if (!buf || buf.length < 1024) return origSend(body);
+      let ct = String(res.getHeader('Content-Type') || '');
+      if (!ct && typeof body === 'string') { ct = 'text/html; charset=utf-8'; res.setHeader('Content-Type', ct); }
+      if (!COMPRESSIBLE_CT.test(ct)) return origSend(body);
+      zlib.gzip(buf, { level: 5 }, (err, out) => {
+        if (err || res.headersSent) return origSend(body);
+        res.setHeader('Content-Encoding', 'gzip');
+        res.vary('Accept-Encoding');
+        origSend(out);
+      });
+      return res;
+    } catch (e) { return origSend(body); }
+  };
+  next();
+});
+
 // Middleware
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -3496,7 +3524,7 @@ app.get('/buy/:id', requireAuth, async (req, res) => {
   }
 
   // Cek apakah user sudah pernah membeli (transaksi sukses) produk ini
-  const transactions = await readFresh('transactions.json');
+  const transactions = await readSmart('transactions.json'); // cuma buat flag hasPurchased (UI) -> cache 30 dtk cukup, hemat download blob besar
   const hasPurchased = transactions.some(t =>
     t.userId === user?.id &&
     t.productId === product.id &&

@@ -383,7 +383,24 @@ const getDbStatus = async () => {
 
 // Baca data paling fresh dari Supabase. Tetap SELALU konsisten antar instance,
 // tapi hemat: cek versi (updated_at) dulu, blob cuma diunduh kalau berubah.
-const readFresh = async (filename) => {
+// HEMAT request Supabase: satu request bisa memanggil readFresh file yang sama
+// berkali-kali (mis. /create-order ~16x). Panggilan yang datang saat fetch file
+// itu masih jalan ikut menunggu hasil yang sama (in-flight dedupe), dan kalau
+// file baru saja disinkron <1 dtk lalu, cache dipakai tanpa cek ke Supabase lagi.
+const FRESH_WINDOW_MS = 1000;
+const inflightFresh = new Map();
+const readFresh = (filename) => {
+  const client = getClient();
+  if (!client) return Promise.resolve(readDB(filename));
+  if (dbCache[filename] !== undefined && cacheVersion[filename] && Date.now() - (cacheTimestamp[filename] || 0) < FRESH_WINDOW_MS) {
+    return Promise.resolve(dbCache[filename]);
+  }
+  if (inflightFresh.has(filename)) return inflightFresh.get(filename);
+  const p = readFreshUncached(filename).finally(() => inflightFresh.delete(filename));
+  inflightFresh.set(filename, p);
+  return p;
+};
+const readFreshUncached = async (filename) => {
   const client = getClient();
   if (!client) return readDB(filename); // fallback ke cache jika offline
   try {
