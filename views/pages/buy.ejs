@@ -327,7 +327,15 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
         <a href="<%= settings.contact.downloadUrl %>"
            target="_blank" rel="noopener"
            class="btn-ghost w-full py-3 rounded-xl text-white/70 text-sm font-medium flex items-center justify-center gap-2">
-            <iconify-icon icon="solar:download-minimalistic-bold" class="text-base text-purple-400"></iconify-icon>Download APK / Channel RYANEWERA
+            <iconify-icon icon="solar:download-minimalistic-bold" class="text-base text-purple-400"></iconify-icon>Download APK / Channel RyanStore
+        </a>
+        <% } %>
+
+        <% if (settings.contact?.setupChannel) { %>
+        <a href="<%= settings.contact.setupChannel %>"
+           target="_blank" rel="noopener"
+           class="btn-ghost w-full py-3 rounded-xl text-white/70 text-sm font-medium flex items-center justify-center gap-2">
+            <iconify-icon icon="mdi:cog-outline" class="text-base text-purple-400"></iconify-icon>Saluran Setup / Pemasangan
         </a>
         <% } %>
 

@@ -155,7 +155,54 @@ function customerMessage(code) {
   return m[code] || 'Gagal generate key dari provider.';
 }
 
+
+// ── Reset Key (API reseller Drip: POST /reset_key.php, header X-API-Token, form-encoded) ──
+// Token & base URL BEDA dengan API order (Bearer drip_sk_live). Kredensial:
+//   settings.dripReset.{token,baseUrl} atau env DRIPSTORE_API_TOKEN / DRIPSTORE_BASE_URL.
+const RESET_DEFAULT_BASE = 'https://dripclientofficial.shop/api/v1';
+function normalizeResetBase(input) {
+  let u = String(input || '').trim();
+  if (!u) return RESET_DEFAULT_BASE;
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  try {
+    const x = new URL(u);
+    return x.origin + (x.pathname.replace(/\/+$/, '') && x.pathname !== '/' ? x.pathname.replace(/\/+$/, '') : '/api/v1');
+  } catch { return ''; }
+}
+function getResetConfig(settings) {
+  const c = (settings && settings.dripReset) || {};
+  return {
+    token: String(c.token || process.env.DRIPSTORE_API_TOKEN || '').trim(),
+    baseUrl: normalizeResetBase(c.baseUrl || process.env.DRIPSTORE_BASE_URL || '')
+  };
+}
+async function resetKey(settings, api, fields) {
+  const cfg = getResetConfig(settings);
+  if (!cfg.token || !cfg.baseUrl) return { success: false, code: 'NOT_CONFIGURED', message: 'Token reset Drip belum diatur.' };
+  try {
+    const res = await fetch(cfg.baseUrl + '/reset_key.php', {
+      method: 'POST',
+      headers: { 'X-API-Token': cfg.token, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({ api, ...fields }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    });
+    const text = await res.text();
+    let j = {};
+    try { j = text ? JSON.parse(text) : {}; } catch { /* bukan JSON */ }
+    const d = (j && j.data) || j || {};
+    if (!res.ok || j.success === false || j.error) {
+      const msg = (j.error && j.error.message) || (typeof j.error === 'string' ? j.error : '') || j.message || `HTTP ${res.status}`;
+      return { success: false, code: res.status === 423 ? 'LIFETIME_CAP' : `http_${res.status}`, status: res.status, message: String(msg) };
+    }
+    return { success: true, message: d.message || d.msg || j.message || '' };
+  } catch (e) {
+    const timeout = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return { success: false, code: timeout ? 'timeout' : 'network_error', message: String((e && e.message) || e) };
+  }
+}
+
 module.exports = {
+  getResetConfig, normalizeResetBase, resetKey,
   normalizeBaseUrl, getConfig, isConfigured, getBalance, getVariants, flattenCatalog,
   orderKeys, customerMessage, request_raw: (settings, path) => request(getConfig(settings), { path, auth: Boolean(getConfig(settings).apiKey) })
 };

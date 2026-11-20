@@ -36,7 +36,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSessi
 
 async function resetAdmin() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('  RESET ADMIN — RYANEWERA');
+  console.log('  RESET ADMIN — RyanStore');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // 1. Ambil settings existing

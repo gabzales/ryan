@@ -109,6 +109,24 @@ const pageTitle = 'Cek Pesanan';
                                             <span>Download Key</span>
                                         </button>
                                     </div>
+                                    <% if (settings.contact && (settings.contact.downloadUrl || settings.contact.setupChannel)) { %>
+                                    <div class="mt-2 grid <%= (settings.contact.downloadUrl && settings.contact.setupChannel) ? 'grid-cols-2' : 'grid-cols-1' %> gap-2">
+                                        <% if (settings.contact.downloadUrl) { %>
+                                        <a href="<%= settings.contact.downloadUrl %>" target="_blank" rel="noopener"
+                                           class="py-2 rounded-lg flex items-center justify-center gap-2 text-xs font-bold"
+                                           style="background:rgba(124,47,214,.12);border:1px solid rgba(124,47,214,.3);color:#c084fc;">
+                                            <iconify-icon icon="solar:download-minimalistic-bold"></iconify-icon><span>Link Download</span>
+                                        </a>
+                                        <% } %>
+                                        <% if (settings.contact.setupChannel) { %>
+                                        <a href="<%= settings.contact.setupChannel %>" target="_blank" rel="noopener"
+                                           class="py-2 rounded-lg flex items-center justify-center gap-2 text-xs font-bold"
+                                           style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#34d399;">
+                                            <iconify-icon icon="mdi:cog-outline"></iconify-icon><span>Link Setup</span>
+                                        </a>
+                                        <% } %>
+                                    </div>
+                                    <% } %>
                                     <% if (settings.contact && settings.contact.telegram) { %>
                                     <a href="https://t.me/<%= settings.contact.telegram %>" target="_blank" rel="noopener" id="telegramBtn"
                                         class="mt-2 w-full py-2 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition-all"

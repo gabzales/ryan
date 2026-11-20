@@ -15,6 +15,51 @@ const stColor = { pending: '#d97706', done: '#16a34a', rejected: '#dc2626' };
     <p style="font-size:12px;color:var(--text-3);margin-top:4px;">Khusus key yang kamu beli di <%= settings.siteName || 'toko ini' %>.</p>
   </div>
 
+  <% if (auto && auto.enabled && auto.providers.length) { %>
+  <div class="neon-card" style="padding:18px;margin-bottom:14px;">
+    <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px;">Reset Otomatis</div>
+    <p style="font-size:11px;color:var(--text-3);margin-bottom:12px;">Langsung diproses, tanpa nunggu admin. Sisa jatah hari ini: <strong class="rkLeftAll"><%= quota.left %></strong>/<%= quota.limit %></p>
+    <div id="raChips" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <% auto.providers.forEach(function(p, i){ %><button type="button" class="ra-chip" data-api="<%= p.id %>" style="padding:8px 13px;border-radius:99px;font-size:12px;font-weight:800;cursor:pointer;border:1.5px solid <%= i === 0 ? '#2563eb' : 'var(--border)' %>;background:<%= i === 0 ? '#eef3ff' : 'transparent' %>;color:var(--text-1);"><%= p.label %></button><% }) %>
+    </div>
+    <% auto.providers.forEach(function(p, i){ %>
+    <form class="ra-form" data-api="<%= p.id %>" <%= i === 0 ? '' : 'hidden' %>>
+      <% p.fields.forEach(function(f){ %>
+      <input class="hm-input ra-in" name="<%= f.name %>" type="<%= f.type || 'text' %>" placeholder="<%= f.label %>" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-bottom:8px;font-family:monospace;" required>
+      <% }) %>
+      <% if (p.note) { %><p style="font-size:11px;color:var(--text-3);margin-bottom:8px;"><%= p.note %></p><% } %>
+      <button type="submit" class="btn-primary" style="width:100%;padding:12px;font-size:14px;border-radius:10px;" <%= quota.left <= 0 ? 'disabled' : '' %>>Reset Key Sekarang</button>
+      <div class="ra-msg" style="display:none;font-size:12px;font-weight:600;margin-top:10px;line-height:1.5;"></div>
+    </form>
+    <% }) %>
+  </div>
+  <script>
+  (function(){
+    var chips = document.querySelectorAll('.ra-chip'), forms = document.querySelectorAll('.ra-form');
+    chips.forEach(function(c){ c.addEventListener('click', function(){
+      chips.forEach(function(x){ var on = x === c; x.style.borderColor = on ? '#2563eb' : 'var(--border)'; x.style.background = on ? '#eef3ff' : 'transparent'; });
+      forms.forEach(function(f){ f.hidden = f.getAttribute('data-api') !== c.getAttribute('data-api'); });
+    }); });
+    forms.forEach(function(f){ f.addEventListener('submit', function(e){
+      e.preventDefault();
+      var b = f.querySelector('button[type=submit]'), m = f.querySelector('.ra-msg'), body = { api: f.getAttribute('data-api') };
+      f.querySelectorAll('.ra-in').forEach(function(i){ body[i.name] = i.value; });
+      b.disabled = true; m.style.display = 'block'; m.style.color = 'var(--text-2)'; m.textContent = 'Lagi diproses...';
+      fetch('/reset-key', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          m.style.color = d.success ? '#16a34a' : '#db2777'; m.textContent = d.message || (d.success ? 'Berhasil.' : 'Gagal.');
+          if (d.quota) document.querySelectorAll('.rkLeftAll, #rkLeft').forEach(function(el){ el.textContent = d.quota.left; });
+          if (d.success) { f.querySelectorAll('.ra-in').forEach(function(i){ i.value = ''; }); setTimeout(function(){ location.reload(); }, 1800); }
+          else if (!d.quota || d.quota.left > 0) b.disabled = false;
+        })
+        .catch(function(){ m.style.color = '#db2777'; m.textContent = 'Koneksi bermasalah, coba lagi.'; b.disabled = false; });
+    }); });
+  })();
+  </script>
+  <div style="text-align:center;font-size:11px;color:var(--text-3);margin:6px 0 12px;">Gagal atau produk tidak ada di atas? Kirim permintaan ke admin:</div>
+  <% } %>
+
   <div class="neon-card" style="padding:18px;">
     <label style="display:block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px;">Key</label>
     <% if (keys.length) { %>

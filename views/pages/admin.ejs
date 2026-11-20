@@ -714,6 +714,29 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             <button class="btn-primary" style="padding:6px 10px;font-size:11px;" onclick="saveRkLimit()">Simpan</button>
         </div>
     </div>
+    <% const __rc = settings.dripReset || {}; const __rp = {drip:'Drip Client',phantom:'Phantom',rezzx:'Rezzx Mods',fluorite:'Fluorite',brmod:'BR Mods',velora:'Velora iOS'}; %>
+    <div class="neon-card p-4 mb-4">
+        <div class="text-xs font-bold text-purple-300 mb-1 flex items-center gap-2">
+            <iconify-icon icon="mdi:key-change" class="text-base"></iconify-icon> Reset Otomatis (API Reseller Drip)
+        </div>
+        <div class="text-[10px] text-zinc-500 mb-3">Pembeli reset key sendiri tanpa nunggu admin. Maks 3x reset per key seumur key (batas dari Drip). Token ini BEDA dengan API Key autorestock. Kalau Vercel sering diblokir (IP allowlist Drip), pakai permintaan manual di bawah sebagai cadangan.</div>
+        <form id="dripResetForm" class="space-y-3">
+            <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="enabled" <%= __rc.enabled ? 'checked' : '' %>> Aktifkan reset otomatis</label>
+            <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="ownKeysOnly" <%= __rc.ownKeysOnly !== false ? 'checked' : '' %>> Drip &amp; Fluorite: hanya key yang dibeli di toko ini (disarankan)</label>
+            <div>
+                <div class="setting-row-label">API Token Reset <%= __rc.token ? '(tersimpan - isi hanya untuk mengganti)' : '' %></div>
+                <input type="password" name="token" autocomplete="new-password" spellcheck="false" class="hm-input font-mono text-xs" placeholder="<%= __rc.token ? '••••••••••••' : 'Token reseller Drip' %>">
+            </div>
+            <div>
+                <div class="setting-row-label">Base URL (kosongkan untuk default)</div>
+                <input type="text" name="baseUrl" value="<%= __rc.baseUrl || '' %>" class="hm-input font-mono text-xs" placeholder="https://dripclientofficial.shop/api/v1">
+            </div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <% Object.keys(__rp).forEach(function(k){ %><label class="flex items-center gap-1.5"><input type="checkbox" data-rapi="<%= k %>" <%= (__rc.apis && __rc.apis[k] === false) ? '' : 'checked' %>> <%= __rp[k] %></label><% }) %>
+            </div>
+            <button type="submit" class="btn-primary" style="padding:8px 14px;font-size:12px;">Simpan</button>
+        </form>
+    </div>
     <div class="space-y-2" id="rkList"><div class="text-xs text-zinc-500">Memuat...</div></div>
 </div>
 
@@ -945,6 +968,11 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                     <div class="setting-row-label">Link Channel WhatsApp</div>
                     <input type="url" name="waChannel" value="<%= settings.contact?.waChannel||'' %>" class="hm-input" placeholder="https://whatsapp.com/channel/...">
                     <div class="text-[10px] mt-1" style="color:var(--text-3);">Dipakai tombol "Channel WA" di halaman produk, footer, dan menu. Kosongkan untuk menyembunyikan tombol.</div>
+                </div>
+                <div class="mt-3">
+                    <div class="setting-row-label">Link Saluran Setup / Pemasangan</div>
+                    <input type="url" name="setupChannel" value="<%= settings.contact?.setupChannel||'' %>" class="hm-input" placeholder="https://whatsapp.com/channel/... (panduan pemasangan)">
+                    <div class="text-[10px] mt-1" style="color:var(--text-3);">Tombol "Saluran Setup" di halaman produk dan di invoice setelah pembelian. Kosongkan untuk menyembunyikan.</div>
                 </div>
                 <div class="mt-3">
                     <div class="setting-row-label">Link Download APK / Channel</div>
@@ -3165,6 +3193,21 @@ document.getElementById('dripApiForm').addEventListener('submit', async function
         el.appendChild(row);
     });
     this.querySelector('[name=apiKey]').value = '';
+});
+
+document.getElementById('dripResetForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const f = this, apis = {};
+    f.querySelectorAll('[data-rapi]').forEach(c => { apis[c.getAttribute('data-rapi')] = c.checked; });
+    const d = await api('/admin/settings/drip-reset', {
+        enabled: f.querySelector('[name=enabled]').checked,
+        ownKeysOnly: f.querySelector('[name=ownKeysOnly]').checked,
+        token: f.querySelector('[name=token]').value,
+        baseUrl: f.querySelector('[name=baseUrl]').value,
+        apis
+    });
+    if (typeof toast === 'function') toast(d.success ? (d.hasToken ? 'Pengaturan reset tersimpan' : 'Tersimpan, tapi token belum diisi') : (d.message || 'Gagal'), d.success ? 'success' : 'error');
+    f.querySelector('[name=token]').value = '';
 });
 
 async function saveResellerApi() {

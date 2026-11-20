@@ -259,7 +259,7 @@ const reviewTexts = [
   'Fast respon, key valid, ga ada masalah sama sekali.',
   'Harga terjangkau buat semua kalangan. Keren!',
   'Sempat ragu awalnya, tapi setelah coba langsung ketagihan.',
-  'Aman, cepat, murah. 3 kata buat RYANEWERA!',
+  'Aman, cepat, murah. 3 kata buat RyanStore!',
   'Fitur lengkap, update rutin, jarang crash. Perfect!',
   'Seller jujur dan transparan, ga ada tipu-tipu.',
   'Pertama kali beli di sini, ternyata beneran legit!',

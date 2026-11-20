@@ -7,7 +7,7 @@ app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 const settings = {
-  siteName: 'RYAN NEW ERA', gamePanelName: 'RYANEWERA', about: 'about', marqueeText: 'marquee',
+  siteName: 'RyanStore', gamePanelName: 'RyanStore', about: 'about', marqueeText: 'marquee',
   contact: { whatsapp:'', telegram:'', email:'' }, adminUsername: 'admin', logoUrl: '/uploads/logo-lockup.png',
   fonnteToken:'', genspay:{}, ghostSellerApi:{}, pakasir:{}, resellerApi:{}, qrisMode:'', qrisStaticImage:'',
   homeProductsLimit:10, resellerDiscount:0, resellerMinDeposit:0, resellerNote:'', resellerPrice:0, theme:{}

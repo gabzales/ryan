@@ -380,6 +380,25 @@ app.use(async (req, res, next) => {
       } catch (e) { console.error('[migrasi waChannel] gagal:', e.message); global.__waChannelMigrated = false; }
     }
   }
+  // Migrasi sekali: rebrand RYAN NEW ERA -> RyanStore (siteName, gamePanelName, about)
+  if (!global.__brandRsMigrated) {
+    global.__brandRsMigrated = true;
+    if (settings && Object.keys(settings).length && !settings.brandRyanStore) {
+      try {
+        const fresh = await readFresh('settings.json');
+        if (fresh && Object.keys(fresh).length && !fresh.brandRyanStore) {
+          const rep = (v) => String(v || '').replace(/RYAN\s*NEW\s*ERA|RYANEWERA/gi, 'RyanStore');
+          if (!fresh.siteName || /ryan\s*new\s*era|ryanewera/i.test(fresh.siteName)) fresh.siteName = 'RyanStore';
+          if (!fresh.gamePanelName || /ryan\s*new\s*era|ryanewera/i.test(fresh.gamePanelName)) fresh.gamePanelName = 'RyanStore';
+          if (fresh.about) fresh.about = rep(fresh.about);
+          if (fresh.marqueeText) fresh.marqueeText = rep(fresh.marqueeText);
+          fresh.brandRyanStore = true;
+          await writeDB('settings.json', fresh);
+          settings = fresh;
+        }
+      } catch (e) { console.error('[migrasi brand] gagal:', e.message); global.__brandRsMigrated = false; }
+    }
+  }
   res.locals.settings = settings || {};
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
   res.locals.reqPath = req.path || '/';
@@ -486,9 +505,9 @@ const initDB = async () => {
     console.log('   Segera login & ganti password ini dari Admin Panel. Set INITIAL_ADMIN_PASSWORD di env untuk kontrol penuh.');
   }
   const defaultSettings = {
-    siteName: 'RYAN NEW ERA',
-    gamePanelName: 'RYANEWERA',
-    about: 'RYANEWERA menyediakan layanan topup games dan key mod aplikasi premium terbaik #1 indonesia.',
+    siteName: 'RyanStore',
+    gamePanelName: 'RyanStore',
+    about: 'RyanStore menyediakan layanan topup games dan key mod aplikasi premium terbaik #1 indonesia.',
     marqueeText: 'LAYANAN GAME MOD MENU PREMIUM - PROSES CEPAT & AMAN',
     contact: {
       // Placeholder -- isi kontak asli lewat Admin Panel > Settings sebelum go-live.
@@ -1386,9 +1405,9 @@ app.get('/ryanewera-setup', async (req, res) => {
 
     const updatedSettings = {
       ...currentSettings,
-      siteName:      'RYAN NEW ERA',
-      gamePanelName: 'RYANEWERA',
-      about:         'RYAN NEW ERA menyediakan layanan key mod aplikasi premium terbaik #1 indonesia.',
+      siteName:      'RyanStore',
+      gamePanelName: 'RyanStore',
+      about:         'RyanStore menyediakan layanan key mod aplikasi premium terbaik #1 indonesia.',
       marqueeText:   'LAYANAN GAME MOD MENU PREMIUM - PROSES CEPAT & AMAN',
       contact: {
         ...(currentSettings.contact || {}),
@@ -1898,7 +1917,7 @@ app.get('/logout', async (req, res) => {
   res.redirect('/');
 });
 
-// ══ RYANEWERA: ADMIN SECRET LOGIN GATE (hidden from public) ══
+// ══ RyanStore: ADMIN SECRET LOGIN GATE (hidden from public) ══
 app.get('/vpr-secure-panel-8x', (req, res) => {
   if (req.session?.isAdmin) return res.redirect('/admin');
   const kicked = req.query.kicked === '1';
@@ -2479,14 +2498,46 @@ app.get('/docs/api', (req, res) => {
   res.render('pages/docs-api', { settings: res.locals.settings || readDB('settings.json'), user: res.locals.user || getSessionUser(req), base: (process.env.SITE_URL || ('https://' + req.get('host'))).replace(/\/$/, '') + '/api/v1', maxQty: API_MAX_QTY });
 });
 
+// ── Reset Key OTOMATIS via API reseller Drip ──
+const RESET_PROVIDERS = {
+  drip:     { label: 'Drip Client',  fields: [{ name: 'key', label: 'License Key' }] },
+  phantom:  { label: 'Phantom',      fields: [{ name: 'username', label: 'License Key' }] },
+  rezzx:    { label: 'Rezzx Mods',   fields: [{ name: 'username', label: 'License Key' }] },
+  fluorite: { label: 'Fluorite',     fields: [{ name: 'key', label: 'License Key' }] },
+  brmod:    { label: 'BR Mods',      fields: [{ name: 'username', label: 'Username' }, { name: 'password', label: 'Password akun', type: 'password' }], note: 'Password hanya dipakai untuk satu permintaan ini dan tidak disimpan.' },
+  velora:   { label: 'Velora iOS',   fields: [{ name: 'username', label: 'Username / License Key' }], note: 'Reset memindahkan key Velora ke perangkat baru.' }
+};
+function resetAutoCfg(settings) {
+  const c = (settings && settings.dripReset) || {};
+  const apis = {};
+  for (const k of Object.keys(RESET_PROVIDERS)) apis[k] = !(c.apis && c.apis[k] === false);
+  const hasToken = !!dripApi.getResetConfig(settings).token;
+  return { enabled: c.enabled === true && hasToken, hasToken, ownKeysOnly: c.ownKeysOnly !== false, apis };
+}
+function resetClean(m) {
+  const t = String(m || '').slice(0, 220);
+  if (/batas reset|cap|lifetime|tercapai|3x/i.test(t)) return 'Key ini sudah mencapai batas reset (maksimal 3x seumur key). Hubungi admin untuk bantuan.';
+  if (/cloudflare|allowlist|token|api key|IP server|breaker|rate.?limit|timeout|koneksi|bukan JSON|error 5\d\d|HTTP 5|network|NOT_CONFIGURED/i.test(t)) return 'Server reset sedang sibuk. Coba lagi beberapa saat lagi atau kirim permintaan ke admin.';
+  return t.replace(/drip\s*store|dripclient\w*(\.\w+)?|dripstore\w*(\.\w+)?/gi, 'server').trim();
+}
+const resetBusy = new Set();
+const resetHits = new Map(); // userId -> [timestamps]
+function resetRateOk(uid) {
+  const now = Date.now(), arr = (resetHits.get(uid) || []).filter(t => now - t < 10 * 60 * 1000);
+  if (arr.length >= 12) { resetHits.set(uid, arr); return false; }
+  arr.push(now); resetHits.set(uid, arr); return true;
+}
+
 app.get('/reset-key', requireAuth, async (req, res) => {
   if (req.session.isAdmin) return res.redirect('/admin');
   const [transactions, rows] = await Promise.all([readFresh('transactions.json'), readFresh('resetkeys.json')]);
   const settings = res.locals.settings || readDB('settings.json');
   const user = res.locals.user || getSessionUser(req);
   const mine = (Array.isArray(rows) ? rows : []).filter(r => r.userId === req.session.userId);
+  const _ac = resetAutoCfg(settings);
   res.render('pages/reset-key', {
     settings, user,
+    auto: { enabled: _ac.enabled, providers: _ac.enabled ? Object.keys(RESET_PROVIDERS).filter(k => _ac.apis[k]).map(k => ({ id: k, ...RESET_PROVIDERS[k] })) : [] },
     keys: userBoughtKeys(transactions, req.session.userId).slice(-30).reverse(),
     quota: resetQuota(mine, req.session.userId, settings),
     history: mine.slice(-8).reverse()
@@ -2496,6 +2547,7 @@ app.get('/reset-key', requireAuth, async (req, res) => {
 app.post('/reset-key', requireAuth, async (req, res) => {
   try {
     if (req.session.isAdmin) return res.json({ success: false, message: 'Admin tidak perlu reset key.' });
+    if (req.body.api) return await performAutoReset(req, res);
     const key = String(req.body.key || '').trim().slice(0, 200);
     if (!key) return res.json({ success: false, message: 'Isi key dulu.' });
     const uid = req.session.userId;
@@ -2523,6 +2575,74 @@ app.post('/reset-key', requireAuth, async (req, res) => {
   } catch (e) {
     res.json({ success: false, message: 'Gagal mengirim permintaan: ' + e.message });
   }
+});
+
+async function performAutoReset(req, res) {
+  const uid = req.session.userId;
+  if (resetBusy.has(uid)) return res.json({ success: false, message: 'Permintaan sebelumnya masih diproses, tunggu sebentar.' });
+  if (!resetRateOk(uid)) return res.json({ success: false, message: 'Terlalu banyak percobaan reset. Tunggu beberapa menit lalu coba lagi.' });
+  resetBusy.add(uid);
+  try {
+    const settings = await readFresh('settings.json');
+    const cfg = resetAutoCfg(settings);
+    const api = String(req.body.api || '');
+    const prov = RESET_PROVIDERS[api];
+    if (!cfg.enabled || !prov || !cfg.apis[api]) return res.json({ success: false, message: 'Reset otomatis untuk produk ini belum tersedia. Kirim permintaan ke admin.' });
+    const fields = {};
+    for (const f of prov.fields) {
+      const v = String(req.body[f.name] == null ? '' : req.body[f.name]).trim().slice(0, 200);
+      if (!v) return res.json({ success: false, message: `${f.label} wajib diisi.` });
+      fields[f.name] = v;
+    }
+    const rowsAll = await readFresh('resetkeys.json');
+    const rows = Array.isArray(rowsAll) ? rowsAll : [];
+    const q = resetQuota(rows.filter(r => r.userId === uid), uid, settings);
+    if (q.left <= 0) return res.json({ success: false, message: `Jatah reset hari ini habis (${q.limit}/${q.limit}). Coba lagi besok.`, quota: q });
+    if ((api === 'drip' || api === 'fluorite') && cfg.ownKeysOnly) {
+      const transactions = await readFresh('transactions.json');
+      if (!userBoughtKeys(transactions, uid).some(k => k.key === fields.key)) {
+        return res.json({ success: false, message: 'Key ini tidak ditemukan di riwayat pembelianmu. Kalau yakin dibeli di sini, kirim permintaan ke admin.' });
+      }
+    }
+    const r = await dripApi.resetKey(settings, api, fields);
+    if (!r.success) {
+      console.error('[reset-key auto]', api, r.code, r.message);
+      return res.json({ success: false, message: resetClean(r.code === 'LIFETIME_CAP' ? 'batas reset' : r.message) || 'Reset gagal, coba lagi atau kirim permintaan ke admin.' });
+    }
+    const users = readDB('users.json');
+    const u = users.find(x => x.id === uid);
+    const fresh = await readFresh('resetkeys.json');
+    const list = Array.isArray(fresh) ? fresh : [];
+    list.push({
+      id: uuidv4(), userId: uid, username: u?.username || '-', wa: u?.wa || '',
+      key: fields.key || fields.username, productName: prov.label, orderCode: '',
+      status: 'done', mode: 'auto', note: 'Reset otomatis', day: wibDay(),
+      createdAt: new Date().toISOString(), time: formatDate(), processedAt: new Date().toISOString()
+    });
+    await writeDB('resetkeys.json', list.slice(-3000));
+    res.json({ success: true, message: resetClean(r.message) || 'Reset berhasil. Silakan login lagi di aplikasinya.', quota: { limit: q.limit, used: q.used + 1, left: q.left - 1 } });
+  } catch (e) {
+    res.json({ success: false, message: 'Reset gagal, coba lagi atau kirim permintaan ke admin.' });
+  } finally { resetBusy.delete(uid); }
+}
+
+app.post('/admin/settings/drip-reset', requireAdmin, async (req, res) => {
+  try {
+    const settings = await readFresh('settings.json');
+    const old = settings.dripReset || {};
+    const b = req.body || {};
+    const apis = {};
+    for (const k of Object.keys(RESET_PROVIDERS)) apis[k] = !!(b.apis && b.apis[k]);
+    settings.dripReset = {
+      enabled: !!b.enabled,
+      ownKeysOnly: !!b.ownKeysOnly,
+      token: (b.token !== undefined && String(b.token).trim() !== '') ? String(b.token).trim() : (old.token || ''),
+      baseUrl: String(b.baseUrl || '').trim() ? dripApi.normalizeResetBase(b.baseUrl) : '',
+      apis
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true, hasToken: !!dripApi.getResetConfig(settings).token });
+  } catch (e) { res.json({ success: false, message: e.message }); }
 });
 
 app.get('/admin/reset-keys', requireAdmin, async (req, res) => {
@@ -5246,7 +5366,7 @@ app.post('/admin/product/add-keys/:id', requireAdmin, async (req, res) => {
 app.post('/admin/settings/update', requireAdmin, async (req, res) => {
   try {
     const settings = await readFresh('settings.json');
-    const { siteName, gamePanelName, about, marqueeText, whatsapp, telegram, email, downloadUrl, waChannel, adminUsername, categories, categoryLabels, logoUrl, fonnteToken, singleDeviceAdminLogin, showPopularSection, homeProductsLimit } = req.body;
+    const { siteName, gamePanelName, about, marqueeText, whatsapp, telegram, email, downloadUrl, waChannel, setupChannel, adminUsername, categories, categoryLabels, logoUrl, fonnteToken, singleDeviceAdminLogin, showPopularSection, homeProductsLimit } = req.body;
 
     if (siteName)      settings.siteName      = siteName;
     if (gamePanelName) settings.gamePanelName = gamePanelName;
@@ -5275,6 +5395,7 @@ app.post('/admin/settings/update', requireAdmin, async (req, res) => {
     if (email    !== undefined) settings.contact.email    = email;
     if (downloadUrl !== undefined) settings.contact.downloadUrl = downloadUrl.trim();
     if (waChannel !== undefined) settings.contact.waChannel = String(waChannel).trim();
+    if (setupChannel !== undefined) settings.contact.setupChannel = String(setupChannel).trim();
 
     // Handle categories update from JSON string or array
     if (categories) {
@@ -5452,7 +5573,7 @@ app.post('/admin/settings/autogopay', requireAdmin, async (req, res) => {
 // di sana masih cukup. Lihat ghostseller-api.js untuk detail integrasi.
 // Cara pakai:
 //   1. Di proyek GhostSeller: /dashboard/admin/settings/partner-api →
-//      pilih akun reseller yang jadi "akun partner" RYAN NEW ERA, lalu
+//      pilih akun reseller yang jadi "akun partner" RyanStore, lalu
 //      Generate/Regenerate API Key.
 //   2. Tempel API Key itu di sini (Base URL biasanya tidak perlu diubah).
 //   3. Di Edit Produk, set salah satu varian ke Stock Source

@@ -1,7 +1,7 @@
 {
-  "name": "ryanewera-backend",
+  "name": "ryanstore-backend",
   "version": "1.0.0",
-  "description": "Backend Node.js untuk RYANEWERA - Layanan Game Mod Menu Premium",
+  "description": "Backend Node.js untuk RyanStore - Layanan Game Mod Menu Premium",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -15,7 +15,7 @@
     "store",
     "ecommerce"
   ],
-  "author": "RYANEWERA",
+  "author": "RyanStore",
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
