@@ -7,8 +7,10 @@
     <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' — ' : '' %><%= settings?.siteName || 'RyanStore' %></title>
     <meta name="description" content="<%= settings?.about || 'RyanStore - Platform Digital Terpercaya' %>">
     <meta name="theme-color" content="<%= __edot ? '#ffffff' : '#09040f' %>">
-    <link rel="icon" type="image/png" href="/uploads/favicon-gn.png">
-    <link rel="apple-touch-icon" href="/uploads/favicon-gn.png">
+    <meta property="og:image" content="/uploads/logo-ryanstore.png">
+    <meta property="og:title" content="<%= settings?.siteName || 'RyanStore' %>">
+    <link rel="icon" type="image/png" href="/uploads/favicon-ryanstore.png">
+    <link rel="apple-touch-icon" href="/uploads/favicon-ryanstore.png">
     <% if (typeof twCss !== 'undefined' && twCss) { %><style id="tw-inline"><%- twCss %></style><% } else { %><link rel="stylesheet" href="/tw.css?v=<%= typeof cssVer !== 'undefined' ? cssVer : '1' %>"><% } %>
     <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -456,7 +458,7 @@
             <!-- Header -->
             <div class="flex items-center justify-between p-4" style="border-bottom:1px solid var(--border);">
                 <div class="flex items-center gap-2">
-                    <% if (__edot) { %><%- include('partials/edot-brand') %><% } else { %><img src="/uploads/logo-lockup.png" alt="RyanStore" style="height:32px;width:auto;object-fit:contain;"><% } %>
+                    <% if (__edot) { %><%- include('partials/edot-brand') %><% } else { %><img src="/uploads/logo-ryanstore.png" alt="RyanStore" style="height:32px;width:auto;object-fit:contain;"><% } %>
                 </div>
                 <button onclick="closeMenu()" class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:rgba(255,255,255,.05);border:1px solid var(--border);">
                     <iconify-icon icon="mdi:close" style="color:var(--text-2);"></iconify-icon>

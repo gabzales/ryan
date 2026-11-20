@@ -392,6 +392,7 @@ app.use(async (req, res, next) => {
           if (!fresh.gamePanelName || /ryan\s*new\s*era|ryanewera/i.test(fresh.gamePanelName)) fresh.gamePanelName = 'RyanStore';
           if (fresh.about) fresh.about = rep(fresh.about);
           if (fresh.marqueeText) fresh.marqueeText = rep(fresh.marqueeText);
+          if (!fresh.logoUrl || /logo-gn/.test(fresh.logoUrl)) fresh.logoUrl = '/uploads/logo-ryanstore.png';
           fresh.brandRyanStore = true;
           await writeDB('settings.json', fresh);
           settings = fresh;
@@ -522,7 +523,7 @@ const initDB = async () => {
     pakasir: { apiKey: '', project: '', apiBaseUrl: 'app.pakasir.com' },
     adminUsername: fallbackUsername,
     adminPassword: bcrypt.hashSync(fallbackPassword, 12),
-    logoUrl: '/uploads/logo-gn-icon.jpg',
+    logoUrl: '/uploads/logo-ryanstore.png',
     categories: ['freefire', 'mlbb', 'pubgm', 'sertifikat'],
     categoryLabels: { freefire: 'FREE FIRE', mlbb: 'MOBILE LEGENDS', pubgm: 'PUBG MOBILE', sertifikat: 'SERTIFIKAT' },
     resellerEnabled: true,
@@ -1420,7 +1421,7 @@ app.get('/ryanewera-setup', async (req, res) => {
       },
       adminUsername: newUsername,
       adminPassword: newHash,
-      logoUrl: '/uploads/logo-gn-icon.jpg',
+      logoUrl: '/uploads/logo-ryanstore.png',
     };
 
     await db.writeDB('settings.json', updatedSettings);
