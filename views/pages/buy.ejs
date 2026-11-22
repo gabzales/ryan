@@ -2,6 +2,7 @@
 const pageTitle = 'Beli ' + product.name;
 // Harga efektif per paket: terendah antara harga normal/reseller dan harga flash sale.
 const regPrice = (it) => (isReseller && it.reseller_price) ? it.reseller_price : (it.p || 0);
+const __depOn = (settings.depositEnabled !== false);
 const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPrice(it)) ? it.flash_price : regPrice(it);
 %>
 
@@ -117,7 +118,7 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
                 <div class="text-base font-black text-yellow-400" id="walletBalanceShow">Rp <%= (user?.balance||0).toLocaleString('id-ID') %></div>
             </div>
         </div>
-        <% if (isReseller) { %>
+        <% if (__depOn) { %>
         <a href="/dashboard#wallet" class="px-3 py-2 rounded-lg text-[11px] font-bold flex-shrink-0" style="background:rgba(234,179,8,.15);border:1px solid rgba(234,179,8,.3);color:#fbbf24;text-decoration:none;">
             <iconify-icon icon="mdi:plus-circle" style="vertical-align:-2px;"></iconify-icon> Top Up
         </a>
@@ -264,30 +265,30 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
         <% const walletBalance = user?.balance || 0; %>
         <div>
             <label class="text-[10px] font-bold uppercase tracking-[0.15em] text-white/40 mb-1.5 block">METODE PEMBAYARAN</label>
-            <div class="grid <%= isReseller ? 'grid-cols-1' : 'grid-cols-2' %> gap-2">
-                <% if (!isReseller) { %>
+            <% const __firstPrice = effPrice(product.items?.[0]); const __defWallet = !!user && walletBalance > 0 && walletBalance >= __firstPrice; %>
+            <div class="grid grid-cols-2 gap-2">
                 <label class="pay-option-label">
-                    <input type="radio" name="payMethod" value="qris" checked onchange="selectPayMethod('qris')">
+                    <input type="radio" name="payMethod" value="qris" <%= __defWallet ? '' : 'checked' %> onchange="selectPayMethod('qris')">
                     <div class="pay-card">
                         <iconify-icon icon="solar:qr-code-bold" class="text-xl text-purple-400 flex-shrink-0"></iconify-icon>
                         <div class="min-w-0">
-                            <div class="text-xs font-bold text-white">QRIS</div>
-                            <div class="text-[9px] text-zinc-500">Scan & bayar</div>
+                            <div class="text-xs font-bold text-white">Beli Langsung</div>
+                            <div class="text-[9px] text-zinc-500">QRIS, tanpa isi saldo</div>
                         </div>
                     </div>
                 </label>
-                <% } %>
                 <label class="pay-option-label" id="walletPayLabel">
-                    <input type="radio" name="payMethod" value="wallet" <%= isReseller ? 'checked' : '' %> onchange="selectPayMethod('wallet')">
+                    <input type="radio" name="payMethod" value="wallet" <%= __defWallet ? 'checked' : '' %> onchange="selectPayMethod('wallet')">
                     <div class="pay-card">
                         <iconify-icon icon="mdi:wallet" class="text-xl text-yellow-400 flex-shrink-0"></iconify-icon>
                         <div class="min-w-0">
-                            <div class="text-xs font-bold text-white">Saldo</div>
-                            <div class="text-[9px] text-zinc-500">Rp <%= walletBalance.toLocaleString('id-ID') %></div>
+                            <div class="text-xs font-bold text-white">Pakai Saldo</div>
+                            <div class="text-[9px] text-zinc-500">Saldo Rp <%= walletBalance.toLocaleString('id-ID') %></div>
                         </div>
                     </div>
                 </label>
             </div>
+            <% if (__depOn) { %><div class="text-[10px] text-zinc-500 mt-2">Mau lebih praktis? <a href="/dashboard#wallet" style="color:#fbbf24;text-decoration:underline;">Isi saldo dulu</a>, lalu beli tanpa scan QRIS tiap kali.</div><% } %>
         </div>
 
         <!-- ORDER SUMMARY TABLE -->
@@ -361,7 +362,7 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
         <% if (hasStock) { %>
             <button id="submitBtn" onclick="handleOrder()"
                 class="btn-primary w-full py-4 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2">
-                <% if (isReseller) { %>
+                <% if (__defWallet) { %>
                 <iconify-icon icon="mdi:wallet" class="text-lg"></iconify-icon>Beli dengan Saldo
                 <% } else { %>
                 <iconify-icon icon="solar:bag-check-bold" class="text-lg"></iconify-icon>Konfirmasi
@@ -585,7 +586,7 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
     const PID   = '<%= product.id %>';
     const PNAME = '<%= product.name %>';
     const IS_RESELLER = <%= isReseller ? 'true' : 'false' %>;
-    let payMethod = IS_RESELLER ? 'wallet' : 'qris'; // reseller cuma bisa bayar pakai Saldo
+    let payMethod = <%= __defWallet ? "'wallet'" : "'qris'" %>; // default: Saldo kalau cukup, selain itu Beli Langsung (QRIS)
 
     function submitBtnLabel(method) {
         return method === 'wallet'

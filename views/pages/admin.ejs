@@ -720,8 +720,12 @@ textarea.hm-input{resize:vertical;min-height:80px;}
             <iconify-icon icon="mdi:key-change" class="text-base"></iconify-icon> Reset Otomatis (API Reseller Drip)
         </div>
         <div class="text-[10px] text-zinc-500 mb-3">Pembeli reset key sendiri tanpa nunggu admin. Maks 3x reset per key seumur key (batas dari Drip). Token ini BEDA dengan API Key autorestock. Kalau Vercel sering diblokir (IP allowlist Drip), pakai permintaan manual di bawah sebagai cadangan.</div>
+        <% const __rTok = !!(__rc.token || process.env.DRIPSTORE_API_TOKEN); const __rOn = __rc.enabled !== false && __rTok; %>
+        <div class="text-[11px] mb-3 p-2 rounded-lg" style="background:<%= __rOn ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)' %>;color:<%= __rOn ? '#34d399' : '#f87171' %>;">
+            Status: <%= __rOn ? 'AKTIF - panel reset otomatis tampil di /reset-key' : ('NONAKTIF - ' + (__rc.enabled === false ? 'centang "Aktifkan reset otomatis" lalu Simpan' : 'isi API Token reset dari Drip lalu Simpan')) %>
+        </div>
         <form id="dripResetForm" class="space-y-3">
-            <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="enabled" <%= __rc.enabled ? 'checked' : '' %>> Aktifkan reset otomatis</label>
+            <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="enabled" <%= __rc.enabled !== false ? 'checked' : '' %>> Aktifkan reset otomatis</label>
             <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="ownKeysOnly" <%= __rc.ownKeysOnly !== false ? 'checked' : '' %>> Drip &amp; Fluorite: hanya key yang dibeli di toko ini (disarankan)</label>
             <div>
                 <div class="setting-row-label">API Token Reset <%= __rc.token ? '(tersimpan - isi hanya untuk mengganti)' : '' %></div>
@@ -1629,7 +1633,13 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                 </div>
             </div>
             <div>
-                <div class="setting-row-label">Minimal Top Up Saldo (Rp)</div>
+                <div class="setting-row-label">Top Up Saldo untuk Semua Pembeli</div>
+                <label class="flex items-center gap-2 text-xs mb-2"><input type="checkbox" id="depositEnabledToggle" <%= settings.depositEnabled !== false ? 'checked' : '' %>> Aktifkan (pembeli bisa pilih Pakai Saldo atau Beli Langsung)</label>
+                <div class="setting-row-label">Minimal Top Up Pembeli Biasa (Rp)</div>
+                <input type="number" name="depositMin" value="<%= settings.depositMin || 10000 %>" min="1000" class="hm-input" placeholder="10000">
+            </div>
+            <div>
+                <div class="setting-row-label">Minimal Top Up Saldo Reseller (Rp)</div>
                 <input type="number" name="resellerMinDeposit" value="<%= settings.resellerMinDeposit || 100000 %>" min="1000" class="hm-input" placeholder="100000">
                 <div class="text-[10px] text-zinc-500 mt-1">Nominal minimum saat reseller top up saldo wallet untuk beli key tanpa scan QRIS berulang.</div>
             </div>
@@ -3535,6 +3545,8 @@ document.getElementById('resellerSettingsForm').addEventListener('submit', async
         resellerPrice: fd.get('resellerPrice'),
         resellerDiscount: fd.get('resellerDiscount'),
         resellerMinDeposit: fd.get('resellerMinDeposit'),
+        depositEnabled: document.getElementById('depositEnabledToggle').checked ? 'true' : 'false',
+        depositMin: fd.get('depositMin'),
         resellerNote: fd.get('resellerNote')
     };
     const d = await api('/admin/settings/reseller', data);

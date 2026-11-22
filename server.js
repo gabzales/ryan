@@ -2513,7 +2513,7 @@ function resetAutoCfg(settings) {
   const apis = {};
   for (const k of Object.keys(RESET_PROVIDERS)) apis[k] = !(c.apis && c.apis[k] === false);
   const hasToken = !!dripApi.getResetConfig(settings).token;
-  return { enabled: c.enabled === true && hasToken, hasToken, ownKeysOnly: c.ownKeysOnly !== false, apis };
+  return { enabled: c.enabled !== false && hasToken, hasToken, ownKeysOnly: c.ownKeysOnly !== false, apis };
 }
 function resetClean(m) {
   const t = String(m || '').slice(0, 220);
@@ -2740,6 +2740,11 @@ app.post('/reseller/join', requireAuth, async (req, res) => {
 // Reseller top-up saldo via QRIS. Setelah dibayar & dikonfirmasi (lihat
 // /check-payment/:refId), saldo otomatis bertambah dan bisa langsung dipakai
 // untuk beli key tanpa scan QRIS lagi (lihat /wallet/buy).
+// Minimal top up saldo: reseller pakai resellerMinDeposit, pembeli biasa pakai depositMin (default Rp10.000).
+const depositMinFor = (user, settings) => user && user.is_reseller
+  ? (parseInt(settings.resellerMinDeposit) || 100000)
+  : (parseInt(settings.depositMin) || 10000);
+
 app.post('/wallet/topup', requireAuth, async (req, res) => {
   try {
     if (req.session.isAdmin) return res.json({ success: false, message: 'Admin tidak memiliki wallet' });
@@ -2751,14 +2756,17 @@ app.post('/wallet/topup', requireAuth, async (req, res) => {
     const users = readDB('users.json');
     const user = users.find(u => u.id === req.session.userId);
     if (!user) return res.json({ success: false, message: 'User tidak ditemukan' });
-    if (!user.is_reseller) return res.json({ success: false, message: 'Top up saldo khusus untuk Reseller VIP. Gabung reseller dulu yuk!' });
 
+    // Top up saldo terbuka untuk SEMUA pembeli (bukan cuma reseller). Reseller tetap
+    // pakai minimal sendiri (resellerMinDeposit), pembeli biasa pakai depositMin.
     const settings = readDB('settings.json');
-    const minDeposit = settings.resellerMinDeposit || 100000;
+    if (settings.depositEnabled === false) return res.json({ success: false, message: 'Top up saldo sedang ditutup. Silakan beli langsung via QRIS.' });
+    const minDeposit = depositMinFor(user, settings);
     const amount = parseInt(req.body.amount);
     if (isNaN(amount) || amount < minDeposit) {
       return res.json({ success: false, message: `Minimal top up Rp ${minDeposit.toLocaleString('id-ID')}` });
     }
+    if (amount > 10000000) return res.json({ success: false, message: 'Maksimal top up Rp 10.000.000 per transaksi.' });
 
     const orderId = `DEP-${Date.now()}`;
     const refId = uuidv4();
@@ -2801,7 +2809,7 @@ app.post('/wallet/topup', requireAuth, async (req, res) => {
     transactions.push({
       id: refId, orderId, code: orderCode,
       userId: user.id, type: 'deposit',
-      productName: 'Top Up Saldo Reseller',
+      productName: user.is_reseller ? 'Top Up Saldo Reseller' : 'Top Up Saldo',
       amount,
       customerName: user.username, wa: user.wa,
       price: amount, totalPayment, expiredAt, qrString, isStatic,
@@ -5960,7 +5968,7 @@ app.post('/admin/settings/popular-products', requireAdmin, async (req, res) => {
 
 app.post('/admin/settings/reseller', requireAdmin, async (req, res) => {
   try {
-    const { resellerEnabled, resellerPrice, resellerDiscount, resellerNote, resellerMinDeposit } = req.body;
+    const { resellerEnabled, resellerPrice, resellerDiscount, resellerNote, resellerMinDeposit, depositEnabled, depositMin } = req.body;
     const settings = await readFresh('settings.json');
     settings.resellerEnabled = resellerEnabled === 'true' || resellerEnabled === true;
     if (resellerPrice !== undefined && resellerPrice !== '') {
@@ -5977,6 +5985,12 @@ app.post('/admin/settings/reseller', requireAdmin, async (req, res) => {
       const minDep = parseInt(resellerMinDeposit);
       if (isNaN(minDep) || minDep < 0) return res.json({ success: false, message: 'Minimal deposit tidak valid' });
       settings.resellerMinDeposit = minDep;
+    }
+    if (depositEnabled !== undefined) settings.depositEnabled = depositEnabled === 'true' || depositEnabled === true;
+    if (depositMin !== undefined && depositMin !== '') {
+      const dm = parseInt(depositMin);
+      if (isNaN(dm) || dm < 1000) return res.json({ success: false, message: 'Minimal top up pembeli minimal Rp 1.000' });
+      settings.depositMin = dm;
     }
     if (resellerNote !== undefined) settings.resellerNote = resellerNote;
     await writeDB('settings.json', settings);

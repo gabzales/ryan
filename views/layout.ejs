@@ -513,6 +513,11 @@
                     <iconify-icon icon="mdi:heart-pulse" style="color:var(--green);font-size:18px;"></iconify-icon> Status Layanan
                 </a>
                 <% if (typeof user !== 'undefined' && user && !isAdmin) { %>
+                <a href="/dashboard#wallet" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
+                    <iconify-icon icon="mdi:wallet" style="color:#fbbf24;font-size:18px;"></iconify-icon>
+                    <span class="flex-1"><%= (settings?.depositEnabled !== false) ? 'Isi Saldo' : 'Saldo' %></span>
+                    <span class="text-[10px] font-black" style="color:#fbbf24;">Rp <%= (user.balance||0).toLocaleString('id-ID') %></span>
+                </a>
                 <a href="/key-saya" onclick="closeMenu()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors" style="color:var(--text-2);">
                     <iconify-icon icon="mdi:key-chain-variant" style="color:var(--blue);font-size:18px;"></iconify-icon> Key Saya
                 </a>
