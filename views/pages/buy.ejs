@@ -586,7 +586,7 @@ const effPrice = (it) => (it && it.flash_price != null && it.flash_price < regPr
     const PID   = '<%= product.id %>';
     const PNAME = '<%= product.name %>';
     const IS_RESELLER = <%= isReseller ? 'true' : 'false' %>;
-    let payMethod = <%= __defWallet ? "'wallet'" : "'qris'" %>; // default: Saldo kalau cukup, selain itu Beli Langsung (QRIS)
+    let payMethod = <%- __defWallet ? "'wallet'" : "'qris'" %>; // default: Saldo kalau cukup, selain itu Beli Langsung (QRIS)
 
     function submitBtnLabel(method) {
         return method === 'wallet'
