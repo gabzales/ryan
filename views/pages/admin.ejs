@@ -916,6 +916,82 @@ textarea.hm-input{resize:vertical;min-height:80px;}
         <div id="dbStatusContent" class="text-xs text-zinc-400">Memeriksa koneksi...</div>
     </div>
 
+    <!-- Intro Pembuka -->
+    <% const __it = Object.assign({ enabled:true, name:'', lead:'', sub:'DIGITAL STORE', from:'#ff3ea5', to:'#d02bff', bg:'#07040f', leadColor:'#ffffff', once:'session', speed:1 }, settings.intro || {}); %>
+    <div class="neon-card p-4 mb-3">
+        <div class="text-xs font-bold text-pink-400 mb-1 flex items-center gap-2">
+            <iconify-icon icon="mdi:movie-open-play" class="text-base"></iconify-icon> Intro Pembuka Web
+        </div>
+        <div class="text-[10px] text-zinc-500 mb-3">Animasi garis cahaya, lalu nama web muncul huruf per huruf sebelum masuk ke halaman. Tampil sekali per sesi browser dan bisa di-tap untuk dilewati. Setelah menyimpan, klik "Lihat Hasil" untuk mencoba.</div>
+        <form id="introForm" style="display:flex;flex-direction:column;gap:12px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;"><input type="checkbox" name="enabled" <%= __it.enabled !== false ? 'checked' : '' %>> Aktifkan intro</label>
+
+            <div>
+                <div class="setting-row-label">Tema cepat</div>
+                <div id="introPresets" style="display:flex;flex-wrap:wrap;gap:8px;">
+                    <% [['Pink-Ungu','#ff3ea5','#d02bff','#07040f'],['Biru','#38bdf8','#6366f1','#04070f'],['Hijau','#34d399','#10b981','#04100b'],['Emas','#fbbf24','#f97316','#100a04'],['Merah','#fb7185','#e11d48','#10040a'],['Cyan-Ungu','#22d3ee','#a855f7','#050810'],['Putih-Biru','#2563eb','#7c3aed','#ffffff']].forEach(function(t){ %>
+                    <button type="button" style="padding:6px 12px;border-radius:999px;font-size:11px;font-weight:700;background:linear-gradient(90deg,<%= t[1] %>,<%= t[2] %>);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.2);" data-from="<%= t[1] %>" data-to="<%= t[2] %>" data-bg="<%= t[3] %>"><%= t[0] %></button>
+                    <% }) %>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                    <div class="setting-row-label">Warna teks depan</div>
+                    <input type="color" name="leadColor" value="<%= __it.leadColor %>" style="width:100%;height:38px;padding:2px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.15);cursor:pointer;">
+                </div>
+                <div>
+                    <div class="setting-row-label">Warna latar</div>
+                    <input type="color" name="bg" value="<%= __it.bg %>" style="width:100%;height:38px;padding:2px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.15);cursor:pointer;">
+                </div>
+                <div>
+                    <div class="setting-row-label">Gradasi awal</div>
+                    <input type="color" name="from" value="<%= __it.from %>" style="width:100%;height:38px;padding:2px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.15);cursor:pointer;">
+                </div>
+                <div>
+                    <div class="setting-row-label">Gradasi akhir</div>
+                    <input type="color" name="to" value="<%= __it.to %>" style="width:100%;height:38px;padding:2px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.15);cursor:pointer;">
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                    <div class="setting-row-label">Nama di intro (kosong = nama situs)</div>
+                    <input type="text" name="name" maxlength="24" value="<%= __it.name %>" class="hm-input" placeholder="<%= (settings.siteName||'RyanStore').replace(/\s+/g,'') %>">
+                </div>
+                <div>
+                    <div class="setting-row-label">Bagian depan polos (kosong = otomatis)</div>
+                    <input type="text" name="lead" maxlength="24" value="<%= __it.lead %>" class="hm-input" placeholder="mis. RYAN">
+                </div>
+                <div>
+                    <div class="setting-row-label">Teks kecil di bawah (kosong = sembunyi)</div>
+                    <input type="text" name="sub" maxlength="30" value="<%= __it.sub %>" class="hm-input" placeholder="DIGITAL STORE">
+                </div>
+                <div>
+                    <div class="setting-row-label">Kapan tampil</div>
+                    <select name="once" class="hm-input">
+                        <option value="session" <%= __it.once !== 'always' ? 'selected' : '' %>>Sekali per sesi (disarankan)</option>
+                        <option value="always" <%= __it.once === 'always' ? 'selected' : '' %>>Setiap buka web</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <div class="setting-row-label">Kecepatan huruf: <span id="introSpeedLbl"><%= Number(__it.speed).toFixed(1) %>x</span> <span class="text-zinc-600">(kecil = cepat)</span></div>
+                <input type="range" name="speed" min="0.6" max="1.6" step="0.1" value="<%= __it.speed %>" style="width:100%;">
+            </div>
+
+            <div id="introPreview" style="display:flex;align-items:center;justify-content:center;border-radius:12px;height:92px;border:1px solid rgba(255,255,255,.1);overflow:hidden;">
+                <div id="introPreviewText" style="font-weight:900;font-size:26px;letter-spacing:.12em;white-space:nowrap;"></div>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="submit" class="btn-primary" style="padding:8px 14px;font-size:12px;">Simpan</button>
+                <a href="/?intro_preview=1" target="_blank" style="padding:8px 16px;border-radius:12px;font-size:12px;font-weight:700;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:#fff;text-decoration:none;">Lihat Hasil</a>
+            </div>
+        </form>
+    </div>
+
     <!-- Info Situs -->
     <div class="neon-card p-5 mb-3">
         <div class="text-xs font-bold text-purple-400 mb-4 flex items-center gap-2">
@@ -3219,6 +3295,47 @@ document.getElementById('dripResetForm').addEventListener('submit', async functi
     if (typeof toast === 'function') toast(d.success ? (d.hasToken ? 'Pengaturan reset tersimpan' : 'Tersimpan, tapi token belum diisi') : (d.message || 'Gagal'), d.success ? 'success' : 'error');
     f.querySelector('[name=token]').value = '';
 });
+
+(function () {
+    const f = document.getElementById('introForm'); if (!f) return;
+    const prev = document.getElementById('introPreviewText'), box = document.getElementById('introPreview');
+    const hexRgb = h => { const n = parseInt(String(h).slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+    function render() {
+        const site = <%- JSON.stringify(String(settings.siteName || 'RyanStore').replace(/\s+/g, '')) %>;
+        let name = (f.name.value || site).replace(/\s+/g, '').toUpperCase() || 'NAMA';
+        let lead = (f.lead.value || '').replace(/\s+/g, '').toUpperCase();
+        if (!lead && !f.name.value) { const w = <%- JSON.stringify(String(settings.siteName || 'RyanStore')) %>.trim().split(/\s+/); if (w.length > 1) lead = w[0].toUpperCase(); else if (/store$/i.test(w[0]) && w[0].length > 5) lead = w[0].slice(0, -5).toUpperCase(); }
+        const a = hexRgb(f.from.value), b = hexRgb(f.to.value);
+        const np = Math.max(1, name.length - lead.length - 1);
+        let h = '';
+        for (let i = 0; i < name.length; i++) {
+            if (lead && i >= lead.length) {
+                const t = Math.min(1, Math.max(0, (i - lead.length) / np));
+                const c = a.map((x, k) => Math.round(x + (b[k] - x) * t)).join(',');
+                h += '<span style="color:rgb(' + c + ');text-shadow:0 0 12px rgba(' + c + ',.7)">' + name[i] + '</span>';
+            } else h += '<span style="color:' + f.leadColor.value + '">' + name[i] + '</span>';
+        }
+        prev.innerHTML = h; box.style.background = f.bg.value;
+        document.getElementById('introSpeedLbl').textContent = Number(f.speed.value).toFixed(1) + 'x';
+    }
+    f.addEventListener('input', render);
+    document.getElementById('introPresets').addEventListener('click', e => {
+        const b = e.target.closest('button[data-from]'); if (!b) return;
+        f.from.value = b.dataset.from; f.to.value = b.dataset.to; f.bg.value = b.dataset.bg;
+        const light = (() => { const [r, g, bl] = hexRgb(b.dataset.bg); return (0.299 * r + 0.587 * g + 0.114 * bl) / 255 > 0.6; })();
+        f.leadColor.value = light ? '#111827' : '#ffffff';
+        render();
+    });
+    f.addEventListener('submit', async e => {
+        e.preventDefault();
+        const d = await api('/admin/settings/intro', {
+            enabled: f.enabled.checked, name: f.name.value, lead: f.lead.value, sub: f.sub.value,
+            from: f.from.value, to: f.to.value, bg: f.bg.value, leadColor: f.leadColor.value, once: f.once.value, speed: f.speed.value
+        });
+        if (typeof toast === 'function') toast(d.success ? 'Intro disimpan. Klik "Lihat Hasil" untuk mencoba.' : (d.message || 'Gagal menyimpan'), d.success ? 'success' : 'error');
+    });
+    render();
+})();
 
 async function saveResellerApi() {
     const d = await api('/admin/settings/reseller-api', { enabled: document.getElementById('resellerApiEnabled').checked });

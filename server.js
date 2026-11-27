@@ -12,6 +12,31 @@ const ghostSellerApi = require('./ghostseller-api');
 const vipBestModsApi = require('./vipbestmods-api');
 const thanhubApi = require('./thanhub-api');
 const dripApi = require('./drip-api');
+
+// ── Intro pembuka (th-intro.js): konfigurasi dari Admin > Pengaturan > Intro Pembuka ──
+const INTRO_DEFAULTS = { enabled: true, name: '', lead: '', sub: 'DIGITAL STORE', from: '#ff3ea5', to: '#d02bff', bg: '#07040f', leadColor: '#ffffff', once: 'session', speed: 1 };
+const hexRgb = (h) => { const m = /^#([0-9a-f]{6})$/i.exec(String(h || '')); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+function introConfig(settings, preview) {
+  const c = { ...INTRO_DEFAULTS, ...((settings && settings.intro) || {}) };
+  if (c.enabled === false && !preview) return null;
+  const site = String((settings && settings.siteName) || 'RyanStore').trim();
+  const name = String(c.name || site).replace(/\s+/g, '').slice(0, 24).toUpperCase();
+  if (!name) return null;
+  let lead = String(c.lead || '').replace(/\s+/g, '').toUpperCase();
+  if (!lead && !c.name) {
+    const words = site.split(/\s+/);
+    if (words.length > 1) lead = words[0].toUpperCase();
+    else if (/store$/i.test(site) && site.length > 5) lead = site.slice(0, -5).toUpperCase();
+  }
+  const from = hexRgb(c.from) || [255, 62, 165], to = hexRgb(c.to) || [208, 43, 255];
+  return {
+    name, lead, from: from.join(','), to: to.join(','),
+    bg: hexRgb(c.bg) ? c.bg : '#07040f', leadcolor: hexRgb(c.leadColor) ? c.leadColor : '#ffffff',
+    sub: String(c.sub || '').slice(0, 30), once: (preview || c.once === 'always') ? 'always' : 'session',
+    speed: Math.min(2, Math.max(0.5, parseFloat(c.speed) || 1))
+  };
+}
+
 // Sumber stok 'auto' (key dipesan live ke provider): ghostseller, vipbestmods & thanhub -> dianggap unlimited.
 const isAutoStockSource = (v) => v === 'ghostseller' || v === 'vipbestmods' || v === 'thanhub' || v === 'drip';
 // reseller-api.js (vipibmstore) dicabut total -- file-nya udah dihapus dari
@@ -401,6 +426,7 @@ app.use(async (req, res, next) => {
     }
   }
   res.locals.settings = settings || {};
+  res.locals.introCfg = /^\/(admin|vpr-secure|api)/.test(req.path || '') ? null : introConfig(settings, req.query && req.query.intro_preview === '1');
   res.locals.isAdmin = !!(req.session?.isAdmin || req.session?.userId === 'admin');
   res.locals.reqPath = req.path || '/';
   res.locals.googleEnabled = googleAuthConfigured(res.locals.settings);
@@ -2626,6 +2652,26 @@ async function performAutoReset(req, res) {
     res.json({ success: false, message: 'Reset gagal, coba lagi atau kirim permintaan ke admin.' });
   } finally { resetBusy.delete(uid); }
 }
+
+app.post('/admin/settings/intro', requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const hex = (v, def) => (hexRgb(v) ? String(v).toLowerCase() : def);
+    const settings = await readFresh('settings.json');
+    settings.intro = {
+      enabled: b.enabled === true || b.enabled === 'true',
+      name: String(b.name || '').replace(/\s+/g, '').slice(0, 24),
+      lead: String(b.lead || '').replace(/\s+/g, '').slice(0, 24),
+      sub: String(b.sub || '').slice(0, 30),
+      from: hex(b.from, INTRO_DEFAULTS.from), to: hex(b.to, INTRO_DEFAULTS.to),
+      bg: hex(b.bg, INTRO_DEFAULTS.bg), leadColor: hex(b.leadColor, INTRO_DEFAULTS.leadColor),
+      once: b.once === 'always' ? 'always' : 'session',
+      speed: Math.min(2, Math.max(0.5, parseFloat(b.speed) || 1))
+    };
+    await writeDB('settings.json', settings);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
 
 app.post('/admin/settings/drip-reset', requireAdmin, async (req, res) => {
   try {

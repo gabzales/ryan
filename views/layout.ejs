@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' — ' : '' %><%= settings?.siteName || 'RyanStore' %></title>
     <meta name="description" content="<%= settings?.about || 'RyanStore - Platform Digital Terpercaya' %>">
+    <% if (typeof introCfg !== 'undefined' && introCfg && __edot) { %>
+    <script>window.TH_INTRO = <%- JSON.stringify(introCfg).replace(/</g, '\\u003c') %>;</script>
+    <script src="/th-intro.js?v=2"></script>
+    <% } %>
     <meta name="theme-color" content="<%= __edot ? '#ffffff' : '#09040f' %>">
     <meta property="og:image" content="/uploads/logo-ryanstore.png">
     <meta property="og:title" content="<%= settings?.siteName || 'RyanStore' %>">
