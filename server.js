@@ -1557,6 +1557,14 @@ const toPublicProduct = (p) => {
   return { ...rest, flash: activeFlash(p), keyCount: list.length, taggedKeyCounts, genericKeyCount };
 };
 
+// Opsi "kelompokkan per kategori": urutan kategori ikut Admin > Kategori, urutan produk di dalam kategori ikut posisi produk.
+const sortByCategoryOrder = (list, settings) => {
+  if (!settings || !settings.groupByCategory) return list;
+  const idx = {}; (settings.categories || []).forEach((c, i) => { idx[c] = i; });
+  const rank = (p) => (p.category in idx ? idx[p.category] : 9999);
+  return list.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]);
+};
+
 app.get('/', async (req, res) => {
   // FIX (egress): homepage dipanggil SEMUA visitor termasuk bot/crawler tanpa
   // rate limit. readFresh() bypass cache dan selalu hit Supabase — di traffic
@@ -1609,7 +1617,7 @@ app.get('/', async (req, res) => {
   // N-nya bisa diatur admin lewat settings.homeProductsLimit.
   const homeProductsLimit = parseInt(settings.homeProductsLimit) || 10;
   const totalActiveProducts = products.length;
-  const productsForHome = products.slice(0, homeProductsLimit).map(toPublicProduct);
+  const productsForHome = sortByCategoryOrder(products, settings).slice(0, homeProductsLimit).map(toPublicProduct);
 
   res.render('pages/home', {
     products: productsForHome,
@@ -1654,6 +1662,7 @@ app.get('/produk', async (req, res) => {
   if (page < 1) page = 1;
   if (page > totalPages) page = totalPages;
 
+  allProducts = sortByCategoryOrder(allProducts, settings);
   const startIdx = (page - 1) * pageSize;
   const productsPage = allProducts.slice(startIdx, startIdx + pageSize).map(toPublicProduct);
   const user = res.locals.user || getSessionUser(req);
@@ -4976,6 +4985,8 @@ app.get('/admin', requireAdmin, async (req, res) => {
     const productsTotalCount = products.length;
     const productsPage = products.slice(0, PRODUCTS_PAGE_SIZE);
     const productsHasMore = products.length > PRODUCTS_PAGE_SIZE;
+    const categoryCounts = {};
+    products.forEach(p => { categoryCounts[p.category || ''] = (categoryCounts[p.category || ''] || 0) + 1; });
 
     // Data chart: 7 hari terakhir
     const chartData = [];
@@ -4995,6 +5006,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
       layout: false,
       products,
       productsPage,
+      categoryCounts,
       productsTotalCount,
       productsHasMore,
       transactions: transactions.slice(-20).reverse(),
@@ -5316,6 +5328,69 @@ app.post('/admin/product/move/:id', requireAdmin, async (req, res) => {
     } else return res.json({ success: false, message: 'Arah tidak valid' });
     await writeDB('products.json', products);
     res.json({ success: true });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// Pindah kategori 1 produk (tanpa buka Edit Produk). position: 'top' = taruh paling atas di kategori tujuan.
+app.post('/admin/product/category/:id', requireAdmin, async (req, res) => {
+  try {
+    const category = String((req.body || {}).category || '').trim();
+    const settings = await readFresh('settings.json');
+    if (!(settings.categories || []).includes(category)) return res.json({ success: false, message: 'Kategori tidak ada' });
+    const products = await readFresh('products.json');
+    const i = products.findIndex(p => p.id === req.params.id);
+    if (i === -1) return res.json({ success: false, message: 'Produk tidak ditemukan' });
+    products[i].category = category;
+    await writeDB('products.json', products);
+    res.json({ success: true, category, label: (settings.categoryLabels || {})[category] || category });
+  } catch (e) { res.json({ success: false, message: e.message }); }
+});
+
+// Manajer kategori: urutan, nama tampilan, tambah, hapus (+ pindahkan produknya).
+// body: { list: [{ key|null, label }], remove: [{ key, moveTo }], groupByCategory }
+//   key null = kategori baru (id dibuat otomatis dari label). key lama tidak pernah berubah saat rename.
+app.post('/admin/categories/save', requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const list = Array.isArray(b.list) ? b.list : [];
+    const remove = Array.isArray(b.remove) ? b.remove : [];
+    if (!list.length) return res.json({ success: false, message: 'Minimal 1 kategori diperlukan' });
+    const settings = await readFresh('settings.json');
+    const products = await readFresh('products.json');
+    const oldKeys = new Set(settings.categories || []);
+    const used = new Set();
+    const cats = [], labels = {};
+    for (const it of list) {
+      const label = String(it.label || '').trim().slice(0, 40);
+      if (!label) return res.json({ success: false, message: 'Nama kategori tidak boleh kosong' });
+      let key = it.key && oldKeys.has(it.key) ? it.key : null;
+      if (!key) {
+        const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'kategori';
+        key = base; let n = 2;
+        while (used.has(key) || oldKeys.has(key)) key = `${base}-${n++}`;
+      }
+      if (used.has(key)) return res.json({ success: false, message: 'Kategori ganda terdeteksi' });
+      used.add(key); cats.push(key); labels[key] = label;
+    }
+    // Kategori yang dihapus: produknya wajib dipindah ke kategori yang masih ada.
+    const moveMap = {};
+    for (const key of oldKeys) {
+      if (used.has(key)) continue;
+      const rm = remove.find(r => r && r.key === key);
+      const hasProducts = products.some(p => p.category === key);
+      if (hasProducts) {
+        if (!rm || !used.has(rm.moveTo)) return res.json({ success: false, message: `Pilih tujuan pemindahan produk dari kategori "${(settings.categoryLabels || {})[key] || key}"` });
+        moveMap[key] = rm.moveTo;
+      }
+    }
+    let moved = 0;
+    for (const p of products) if (moveMap[p.category]) { p.category = moveMap[p.category]; moved++; }
+    settings.categories = cats;
+    settings.categoryLabels = labels;
+    if (b.groupByCategory !== undefined) settings.groupByCategory = b.groupByCategory === true || b.groupByCategory === 'true';
+    if (moved) await writeDB('products.json', products);
+    await writeDB('settings.json', settings);
+    res.json({ success: true, moved, categories: cats.map(k => ({ key: k, label: labels[k] })) });
   } catch (e) { res.json({ success: false, message: e.message }); }
 });
 
@@ -6632,6 +6707,8 @@ app.get('/admin/products', requireAdmin, async (req, res) => {
   let products = await readFresh('products.json');
   if (!Array.isArray(products)) products = [];
 
+  const catFilter = String(req.query.category || '').trim();
+  if (catFilter) products = products.filter(p => (p.category || '') === catFilter);
   const search = (req.query.search || '').trim().toLowerCase();
   if (search) {
     products = products.filter(p =>

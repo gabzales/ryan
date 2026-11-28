@@ -280,6 +280,14 @@ textarea.hm-input{resize:vertical;min-height:80px;}
          dicabut total dari sistem; sumber stok sekarang cuma Manual atau
          GhostSeller, dan keduanya wajib diatur per-produk/per-varian secara
          sadar lewat Edit Produk, gak ada lagi jalan pintas bulk-ubah. -->
+    <% const __cc = (typeof categoryCounts !== 'undefined' && categoryCounts) ? categoryCounts : {}; %>
+    <div id="prodCatChips" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
+        <button type="button" class="prod-cat-chip" data-cat="" onclick="setProdCategory('')" style="flex-shrink:0;padding:6px 12px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid rgba(168,85,247,.6);background:rgba(168,85,247,.25);color:#fff;">Semua <span data-count-all><%= productsTotalCount %></span></button>
+        <% (settings.categories || []).forEach(function(k){ %>
+        <button type="button" class="prod-cat-chip" data-cat="<%= k %>" onclick="setProdCategory(this.dataset.cat)" style="flex-shrink:0;padding:6px 12px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#d4d4d8;white-space:nowrap;"><%= (settings.categoryLabels || {})[k] || k %> <span data-count="<%= k %>"><%= __cc[k] || 0 %></span></button>
+        <% }) %>
+    </div>
+    <div class="text-[10px] text-zinc-500 mb-2">Urutan kartu di sini = urutan tampil di toko. Pakai tombol panah untuk mengatur posisi, dan pilih kategori di kartu untuk memindahkan produk ke kategori lain.</div>
     <div class="relative mb-3">
         <iconify-icon icon="mdi:magnify" class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-sm"></iconify-icon>
         <input type="text" id="prodSearchInput" oninput="onProductSearchInput(this.value)" placeholder="Cari produk (nama/kategori)..."
@@ -328,7 +336,10 @@ textarea.hm-input{resize:vertical;min-height:80px;}
                     <span class="badge <%= p.status==='active'?'badge-done':'badge-inactive' %>"><%= p.status==='active'?'Aktif':'Off' %></span>
                 </div>
                 <div class="flex items-center gap-2 text-[10px] text-zinc-500 flex-wrap">
-                    <span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-bold uppercase"><%= p.category %></span>
+                    <select class="cat-quick" data-pid="<%= p.id %>" data-prev="<%= p.category %>" onchange="changeProductCategory(this)" style="max-width:130px;padding:2px 4px;border-radius:6px;font-size:10px;font-weight:700;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3);">
+                        <% (settings.categories || []).forEach(function(k){ %><option value="<%= k %>" <%= k === p.category ? 'selected' : '' %>><%= (settings.categoryLabels || {})[k] || k %></option><% }) %>
+                        <% if (!(settings.categories || []).includes(p.category)) { %><option value="" selected>(tanpa kategori)</option><% } %>
+                    </select>
                     <span class="prod-key-count <%= (p.keys?.length||0)>0?'text-emerald-400':'text-red-400' %>">
                         <iconify-icon icon="mdi:key" class="align-middle"></iconify-icon> <%= p.keys?.length||0 %> key
                     </span>
@@ -1101,20 +1112,22 @@ textarea.hm-input{resize:vertical;min-height:80px;}
 
     <!-- Kategori -->
     <div class="neon-card p-5 mb-3">
-        <div class="text-xs font-bold text-purple-400 mb-4 flex items-center gap-2">
+        <div class="text-xs font-bold text-purple-400 mb-1 flex items-center gap-2">
             <iconify-icon icon="mdi:tag-multiple"></iconify-icon> Kategori Produk
         </div>
-        <form id="categoryForm" class="space-y-3">
-            <div>
-                <div class="setting-row-label">Daftar kategori (satu per baris, format: id:Label)</div>
-                <textarea name="categories" rows="6" class="hm-input font-mono text-xs"><% (settings.categories||[]).forEach(cat => { %><%= cat %>:<%= (settings.categoryLabels||{})[cat]||cat %>
-<% }) %></textarea>
-                <p class="text-[10px] text-zinc-600 mt-1">Contoh: freefire:FREE FIRE</p>
-            </div>
-            <button type="submit" class="btn-primary w-full justify-center py-2.5 text-sm">
-                <iconify-icon icon="mdi:content-save"></iconify-icon> Simpan Kategori
-            </button>
-        </form>
+        <div class="text-[10px] text-zinc-500 mb-3">Atur urutan kategori (tombol panah), ubah nama, tambah, atau hapus. Urutan ini dipakai di tombol kategori toko. Contoh kategori: Root, No Root, iOS.</div>
+        <div id="catMgr" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+            <input type="text" id="catNewLabel" maxlength="40" class="hm-input" placeholder="Nama kategori baru, mis. No Root" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();catAdd();}">
+            <button type="button" onclick="catAdd()" class="btn-primary" style="padding:8px 14px;font-size:12px;white-space:nowrap;">+ Tambah</button>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;margin-top:12px;">
+            <input type="checkbox" id="catGroup" <%= settings.groupByCategory ? 'checked' : '' %> style="margin-top:2px;">
+            <span>Kelompokkan produk di toko per kategori (urutan kategori mengikuti daftar di atas, urutan produk di dalam kategori mengikuti posisi produk). Kalau mati, semua produk tampil sesuai posisi produk saja.</span>
+        </label>
+        <button type="button" onclick="catSave()" class="btn-primary w-full justify-center py-2.5 text-sm" style="margin-top:12px;">
+            <iconify-icon icon="mdi:content-save"></iconify-icon> Simpan Kategori
+        </button>
     </div>
 
     <!-- BANNER CAROUSEL -->
@@ -2605,6 +2618,39 @@ async function saveResellerPrices() {
 const PROD_PAGE_SIZE = 30;
 let _prodOffset = <%= productsPage.length %>;
 let _prodSearchQuery = '';
+window.__CATS = <%- JSON.stringify((settings.categories || []).map(function(k){ return { key: k, label: (settings.categoryLabels || {})[k] || k }; })) %>;
+let _prodCategory = '';
+function catSelectHTML(id, current) {
+    const opts = (window.__CATS || []).map(c => `<option value="${escapeHtmlAttr(c.key)}" ${c.key === current ? 'selected' : ''}>${escapeHtmlAttr(c.label)}</option>`).join('');
+    const none = (window.__CATS || []).some(c => c.key === current) ? '' : '<option value="" selected>(tanpa kategori)</option>';
+    return `<select class="cat-quick" data-pid="${id}" data-prev="${escapeHtmlAttr(current || '')}" onchange="changeProductCategory(this)" style="max-width:130px;padding:2px 4px;border-radius:6px;font-size:10px;font-weight:700;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3);">${opts}${none}</select>`;
+}
+function bumpCatCount(key, delta) {
+    const el = document.querySelector('#prodCatChips [data-count="' + key + '"]');
+    if (el) el.textContent = Math.max(0, (parseInt(el.textContent) || 0) + delta);
+    try { const c = _cat.find(x => x.key === key); if (c) { c.count = Math.max(0, (c.count || 0) + delta); catRender(); } } catch (e) { /* manajer belum siap */ }
+}
+async function changeProductCategory(sel) {
+    const id = sel.dataset.pid, prev = sel.dataset.prev, cat = sel.value;
+    if (!cat || cat === prev) return;
+    const d = await api('/admin/product/category/' + id, { category: cat });
+    if (!d.success) { toast(d.message || 'Gagal memindah kategori', 'error'); sel.value = prev; return; }
+    sel.dataset.prev = cat;
+    bumpCatCount(prev, -1); bumpCatCount(cat, 1);
+    toast('Dipindah ke ' + (d.label || cat), 'success');
+    if (_prodCategory && _prodCategory !== cat) { const card = sel.closest('.prod-card'); if (card) card.remove(); }
+}
+function setProdCategory(cat) {
+    _prodCategory = cat || '';
+    document.querySelectorAll('#prodCatChips .prod-cat-chip').forEach(b => {
+        const on = (b.dataset.cat || '') === _prodCategory;
+        b.style.background = on ? 'rgba(168,85,247,.25)' : 'rgba(255,255,255,.05)';
+        b.style.borderColor = on ? 'rgba(168,85,247,.6)' : 'rgba(255,255,255,.12)';
+        b.style.color = on ? '#fff' : '#d4d4d8';
+    });
+    runProductSearch(_prodSearchQuery || '');
+}
+
 let _prodSearchDebounce = null;
 let _prodLoading = false;
 
@@ -2640,7 +2686,7 @@ function renderProductCardHTML(p) {
                 <span class="badge ${p.status === 'active' ? 'badge-done' : 'badge-inactive'}">${p.status === 'active' ? 'Aktif' : 'Off'}</span>
             </div>
             <div class="flex items-center gap-2 text-[10px] text-zinc-500 flex-wrap">
-                <span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-bold uppercase">${p.category || ''}</span>
+                ${catSelectHTML(p.id, p.category)}
                 <span class="prod-key-count ${keys.length > 0 ? 'text-emerald-400' : 'text-red-400'}"><iconify-icon icon="mdi:key" class="align-middle"></iconify-icon> ${keys.length} key</span>
                 <span>${p.sold || 0} terjual</span>
                 <span class="text-zinc-500 flex items-center gap-1 flex-wrap">${pricingTags}${genericTag}</span>
@@ -2693,6 +2739,7 @@ async function loadMoreProducts() {
     try {
         const params = new URLSearchParams({ offset: _prodOffset, limit: PROD_PAGE_SIZE });
         if (_prodSearchQuery) params.set('search', _prodSearchQuery);
+        if (_prodCategory) params.set('category', _prodCategory);
         const res = await fetch(`/admin/products?${params.toString()}`);
         const d = await res.json();
         if (d.success) {
@@ -2725,6 +2772,7 @@ async function runProductSearch(query) {
     emptyMsg.style.display = 'none';
     const params = new URLSearchParams({ offset: 0, limit: PROD_PAGE_SIZE });
     if (query) params.set('search', query);
+    if (_prodCategory) params.set('category', _prodCategory);
     const res = await fetch(`/admin/products?${params.toString()}`);
     const d = await res.json();
     if (d.success) {
@@ -3791,21 +3839,69 @@ if (document.querySelector('#pane-settings.active')) {
     renderBanners(window._allBanners);
 }
 
-document.getElementById('categoryForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const fd = new FormData(this);
-    const raw = fd.get('categories') || '';
-    const lines = raw.trim().split('\n').filter(l=>l.trim());
-    const cats = [], labels = {};
-    lines.forEach(line => {
-        const [id, ...rest] = line.split(':');
-        if (id && id.trim()) { cats.push(id.trim()); labels[id.trim()] = rest.join(':').trim()||id.trim(); }
+// ═══ MANAJER KATEGORI ═══
+let _cat = (window.__CATS || []).map(c => ({ key: c.key, label: c.label, count: ((<%- JSON.stringify(typeof categoryCounts !== 'undefined' ? categoryCounts : {}) %>)[c.key] || 0), oldLabel: c.label }));
+let _catRemoved = []; // { key, label, count, moveTo }
+function catEsc(x) { return String(x).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m])); }
+function catRender() {
+    const box = document.getElementById('catMgr');
+    const btn = 'padding:6px 9px;border-radius:8px;font-size:12px;line-height:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#e4e4e7;cursor:pointer;';
+    box.innerHTML = _cat.map((c, i) => `
+        <div style="display:flex;align-items:center;gap:6px;padding:8px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;flex-direction:column;gap:3px;">
+                <button type="button" style="${btn}" onclick="catMove(${i},-1)" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+                <button type="button" style="${btn}" onclick="catMove(${i},1)" ${i === _cat.length - 1 ? 'disabled' : ''}>&#9660;</button>
+            </div>
+            <div style="flex:1;min-width:0;">
+                <input type="text" value="${catEsc(c.label)}" maxlength="40" class="hm-input" oninput="_cat[${i}].label=this.value" style="width:100%;">
+                <div style="font-size:10px;color:#71717a;margin-top:3px;">${c.key ? ('id: ' + catEsc(c.key) + ' &middot; ' + c.count + ' produk') : 'kategori baru'}</div>
+            </div>
+            <button type="button" style="${btn}color:#f87171;" onclick="catRemove(${i})" title="Hapus">&#128465;</button>
+        </div>`).join('') + _catRemoved.map((r, k) => `
+        <div style="padding:8px;border-radius:12px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);font-size:11px;">
+            <div style="margin-bottom:6px;">Hapus <b>${catEsc(r.label)}</b> (${r.count} produk). Pindahkan produknya ke:</div>
+            <div style="display:flex;gap:6px;">
+                <select class="hm-input" style="flex:1;" onchange="_catRemoved[${k}].moveTo=this.value">
+                    <option value="">Pilih kategori tujuan...</option>
+                    ${_cat.filter(c => c.key).map(c => `<option value="${catEsc(c.key)}" ${r.moveTo === c.key ? 'selected' : ''}>${catEsc(c.label)}</option>`).join('')}
+                </select>
+                <button type="button" style="${btn}" onclick="catUndo(${k})">Batal</button>
+            </div>
+        </div>`).join('');
+}
+function catMove(i, d) {
+    const j = i + d; if (j < 0 || j >= _cat.length) return;
+    const t = _cat[i]; _cat[i] = _cat[j]; _cat[j] = t; catRender();
+}
+function catAdd() {
+    const el = document.getElementById('catNewLabel'); const v = el.value.trim();
+    if (!v) { toast('Isi nama kategori dulu', 'error'); return; }
+    _cat.push({ key: null, label: v, count: 0 }); el.value = ''; catRender();
+}
+function catRemove(i) {
+    if (_cat.length <= 1) { toast('Minimal 1 kategori diperlukan', 'error'); return; }
+    const c = _cat[i];
+    if (!c.key) { _cat.splice(i, 1); catRender(); return; }   // kategori baru yang belum disimpan: langsung buang
+    if (!c.count && !confirm('Hapus kategori "' + c.label + '"?')) return;
+    _cat.splice(i, 1); _catRemoved.push({ key: c.key, label: c.oldLabel || c.label, count: c.count, moveTo: '' }); catRender();
+}
+function catUndo(k) {
+    const r = _catRemoved.splice(k, 1)[0];
+    _cat.push({ key: r.key, label: r.label, count: r.count, oldLabel: r.label }); catRender();
+}
+async function catSave() {
+    const bad = _catRemoved.find(r => r.count > 0 && !r.moveTo);
+    if (bad) { toast('Pilih tujuan pemindahan produk dari "' + bad.label + '"', 'error'); return; }
+    if (_cat.some(c => !c.label.trim())) { toast('Nama kategori tidak boleh kosong', 'error'); return; }
+    const d = await api('/admin/categories/save', {
+        list: _cat.map(c => ({ key: c.key, label: c.label })),
+        remove: _catRemoved.map(r => ({ key: r.key, moveTo: r.moveTo })),
+        groupByCategory: document.getElementById('catGroup').checked
     });
-    if (!cats.length) { toast('Minimal 1 kategori diperlukan', 'error'); return; }
-    const d = await api('/admin/settings/update', { categories: JSON.stringify(cats), categoryLabels: JSON.stringify(labels) });
-    if (d.success) { toast('Kategori disimpan!', 'success'); setTimeout(()=>window.location.href='/admin#settings',800); }
-    else toast(d.message, 'error');
-});
+    if (d.success) { toast('Kategori disimpan' + (d.moved ? ' (' + d.moved + ' produk dipindah)' : ''), 'success'); setTimeout(() => { window.location.href = '/admin#products'; window.location.reload(); }, 700); }
+    else toast(d.message || 'Gagal menyimpan', 'error');
+}
+catRender();
 
 // ═══ SALES CHART ═══
 (function initSalesChart() {
